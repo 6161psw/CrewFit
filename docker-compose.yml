@@ -16,8 +16,8 @@ services:
     networks: [crewfit]
 
   api:
-    build: ./apps/api
-    env_file: ./apps/api/.env
+    build: ./CrewFit_BE
+    env_file: ./CrewFit_BE/.env
     environment:
       DATABASE_URL: postgresql://crewfit:crewfit@db:5432/crewfit
     ports:

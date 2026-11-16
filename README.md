@@ -2,32 +2,29 @@
 
 학교 인증 기반 대학생 팀빌딩 · 대학 행정 자동화 플랫폼.
 
-## 구조
-
 ```
-apps/api      NestJS + Prisma + PostgreSQL (백엔드, 웹·앱·운영자 공용 API)
-apps/web      학생용 웹 (React, 모바일 반응형/PWA)        — 예정
-apps/admin    학교 관계자용 운영자 웹 (React)              — 예정
-apps/mobile   앱 (web 을 Capacitor 로 래핑)                — 예정
-packages/shared 공용 타입                                  — 예정
-design/       피그마 화면 목록 · 디자인 토큰
+CrewFit_BE/   백엔드 — NestJS + Prisma + PostgreSQL (학생 웹·앱·학교 관리자 사이트 공용 API)
+CrewFit_FE/   프론트 — web(학생) / admin(학교 관리자) / mobile(앱) / shared  (예정)
+design/       피그마 원본(.fig) · 디자인 토큰 · 화면↔API 표
+docs/         기획 문서
+docker-compose.yml   로컬 DB + API
 ```
 
-## 빠른 시작 (백엔드)
+## 빠른 시작
 
 ```bash
-docker compose up -d db                 # PostgreSQL
-cd apps/api
-cp .env.example .env                    # 값 채우기 (GOOGLE_*, JWT_SECRET)
+docker compose up -d db
+cd CrewFit_BE
+cp .env.example .env          # JWT_SECRET 만 바꿔도 실행됨 (구글은 나중에)
 npm install
-npx prisma migrate dev --name init      # 최초 1회: 마이그레이션 생성 + 적용
-npm run seed                            # 학교 · 샘플 공모전
-npm run start:dev                       # http://localhost:3000/docs (Swagger)
+npx prisma migrate dev --name init
+npm run seed
+npm run start:dev             # http://localhost:3000/docs
 ```
+
+자세한 내용: `CrewFit_BE/README.md`
 
 ## 배포 · QR
 
-- QR = URL. 고정 도메인 쓰면 재배포해도 QR 그대로.
-- API: `apps/api/Dockerfile` (Render / Railway / Fly.io 등). 시작 시 `prisma migrate deploy` 자동 실행.
-- 프론트(web/admin): Vercel 등. QR 은 web 고정 도메인으로 생성.
+- QR = URL. 고정 도메인이면 재배포해도 QR 그대로.
 - 웹·API 도메인이 다르면 `COOKIE_SAMESITE=none`, `COOKIE_SECURE=true`.

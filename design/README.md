@@ -1,6 +1,7 @@
 # design
 
-원본: `크루핏 앱 화면 시안 (홈 A·B)` 피그마. 구현 기준 = **통합안 v3**.
+원본: `크루핏 앱 화면 시안_Figma.fig` (이 폴더). 구현 기준 = **v4 학생 앱 + v4 학교 관리자 사이트**.
+Figma 에서 열기: 파일 → 가져오기(Import) → .fig 선택.
 프론트 단계에서 피그마 공유 링크 → Figma 커넥터로 화면별 구조/토큰 추출.
 
 ## 토큰 (시안 기준, 확정 전)
@@ -31,3 +32,15 @@
 | E-01 팀 만들기 | `POST /teams` |
 | E-02 채팅 탭 · 받은 제안 | `GET /teams/me`, `GET /invitations?box=received`, accept/reject |
 | E-03 내 정보 / E-04 자소서 | `GET/PATCH /users/me`, `PATCH /users/me/intro` |
+
+## 학교 관리자 사이트 (W) ↔ API
+
+| 화면 | API |
+|---|---|
+| W-01 로그인 | 구글 로그인(`/auth/google?client=admin`) + `POST /admin-invites/redeem` (Microsoft 로그인은 추후) |
+| W-02 대시보드 | `GET /admin/dashboard` |
+| W-03 지원 팀 목록 | `GET /admin/contests/:id/teams` |
+| W-04 팀 상세 | `GET /admin/submissions/:id` |
+| W-05 보완 요청 | `POST /admin/submissions/:id/revision` |
+| W-06 운영사 전달 | `GET /admin/contests/:id/forward/preview`, `POST /admin/contests/:id/forward` |
+| W-07 전달 완료 | `POST /admin/forward-batches/:id/revert` (되돌리기) |
