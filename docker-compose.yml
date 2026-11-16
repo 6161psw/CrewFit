@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: crewfit
+      POSTGRES_PASSWORD: crewfit
+      POSTGRES_DB: crewfit
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crewfit"]
+      interval: 5s
+      retries: 10
+    networks: [crewfit]
+
+  api:
+    build: ./apps/api
+    env_file: ./apps/api/.env
+    environment:
+      DATABASE_URL: postgresql://crewfit:crewfit@db:5432/crewfit
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [crewfit]
+
+volumes:
+  db-data:
+  uploads:
+
+networks:
+  crewfit:
+    driver: bridge
