@@ -2,6 +2,8 @@
 
 원본: `크루핏 앱 화면 시안_Figma.fig` (이 폴더). 구현 기준 = **v4 학생 앱 + v4 학교 관리자 사이트**.
 Figma 에서 열기: 파일 → 가져오기(Import) → .fig 선택.
+공유본: https://www.figma.com/design/mJccLaGQPrysEAXL9D5zvE (v4 페이지)
+토큰은 `CrewFit_FE/src/index.css` `@theme` 에 반영.
 프론트 단계에서 피그마 공유 링크 → Figma 커넥터로 화면별 구조/토큰 추출.
 
 ## 토큰 (시안 기준, 확정 전)

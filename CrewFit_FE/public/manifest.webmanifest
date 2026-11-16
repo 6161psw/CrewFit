@@ -1,0 +1,10 @@
+{
+  "name": "크루핏",
+  "short_name": "크루핏",
+  "description": "나와 가까운 사람, 나와 가까운 대외활동",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f6f3",
+  "theme_color": "#1e6b52",
+  "lang": "ko"
+}

@@ -4,7 +4,7 @@
 
 ```
 CrewFit_BE/   백엔드 — NestJS + Prisma + PostgreSQL (학생 웹·앱·학교 관리자 사이트 공용 API)
-CrewFit_FE/   프론트 — web(학생) / admin(학교 관리자) / mobile(앱) / shared  (예정)
+CrewFit_FE/   프론트 — React 한 앱: 학생(모바일) + 학교 관리자(/admin)
 design/       피그마 원본(.fig) · 디자인 토큰 · 화면↔API 표
 docs/         기획 문서
 docker-compose.yml   로컬 DB + API
@@ -22,7 +22,14 @@ npm run seed
 npm run start:dev             # http://localhost:3000/docs
 ```
 
-자세한 내용: `CrewFit_BE/README.md`
+```bash
+cd CrewFit_FE
+cp .env.example .env
+npm install
+npm run dev                   # http://localhost:5173 · 관리자 /admin
+```
+
+자세한 내용: `CrewFit_BE/README.md`, `CrewFit_FE/README.md`
 
 ## 배포 · QR
 
