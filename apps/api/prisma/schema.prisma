@@ -1,0 +1,406 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  SCHOOL_ADMIN
+  SUPER_ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  UNDISCLOSED
+}
+
+enum ContestScope {
+  SCHOOL
+  REGION
+  NATIONAL
+}
+
+enum ContestCategory {
+  HACKATHON
+  STARTUP
+  RESEARCH
+  DEMO
+  IDEA
+  ETC
+}
+
+enum ContestStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum TeamStatus {
+  RECRUITING
+  CONFIRMED
+  SUBMITTED
+  COMPLETED
+  DISBANDED
+}
+
+enum MemberOutcome {
+  NONE
+  COMPLETED
+  DROPPED
+}
+
+enum InvitationType {
+  APPLY // 학생 → 팀 (참여 요청)
+  OFFER // 팀장 → 학생 (제안)
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED
+}
+
+enum MessageType {
+  TEXT
+  SYSTEM
+}
+
+enum DocumentType {
+  ROSTER // 팀 명단 (자동)
+  ENROLLMENT // 재학 확인 (학교 인증으로 대체)
+  APPLICATION_FORM // 참가 신청서 (자동 작성)
+  FILE // 파일 업로드 (팀장)
+  CONSENT // 개인정보 동의 (팀원 서명)
+}
+
+enum DocumentStatus {
+  PENDING
+  READY
+}
+
+enum SubmissionStatus {
+  PREPARING
+  SUBMITTED
+  APPROVED
+  REJECTED
+  FORWARDED
+}
+
+enum BadgeCode {
+  FIRST_COMPLETION
+  THREE_COMPLETIONS
+  STARTUP_COMPLETION
+  HACKATHON_COMPLETION
+  AWARD
+}
+
+model School {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique
+  shortName    String
+  region       String
+  emailDomains String[]
+  createdAt    DateTime @default(now())
+
+  users    User[]    @relation("UserSchool")
+  admins   User[]    @relation("AdminSchool")
+  contests Contest[]
+
+  @@map("school")
+}
+
+model User {
+  id                String    @id @default(uuid()) @db.Uuid
+  googleId          String?   @unique
+  email             String    @unique
+  name              String
+  picture           String?
+  role              UserRole  @default(USER)
+  schoolId          Int?
+  schoolEmail       String?   @unique
+  schoolVerifiedAt  DateTime?
+  adminSchoolId     Int?
+  major             String?
+  admissionYear     Int?
+  gender            Gender    @default(UNDISCLOSED)
+  skills            String[]
+  preferBadgeHidden Boolean   @default(false)
+  introOneLiner     String?
+  introRole         String?
+  introExperience   String?
+  introUpdatedAt    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  school              School?               @relation("UserSchool", fields: [schoolId], references: [id])
+  adminSchool         School?               @relation("AdminSchool", fields: [adminSchoolId], references: [id])
+  refreshTokens       RefreshToken[]
+  interests           ContestInterest[]
+  memberships         TeamMember[]
+  ledTeams            Team[]                @relation("TeamLeader")
+  teamLikes           TeamLike[]
+  invitations         Invitation[]          @relation("InvitationUser")
+  sentInvitations     Invitation[]          @relation("InvitationSender")
+  messages            ChatMessage[]
+  badges              UserBadge[]
+  signatures          SubmissionSignature[]
+  createdContests     Contest[]             @relation("ContestCreator")
+  reviewedSubmissions Submission[]          @relation("SubmissionReviewer")
+
+  @@index([schoolId])
+  @@map("user")
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique
+  userId    String   @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_token")
+}
+
+model Contest {
+  id           Int             @id @default(autoincrement())
+  title        String
+  organizer    String
+  description  String          @default("")
+  category     ContestCategory @default(ETC)
+  tags         String[]
+  scope        ContestScope
+  schoolId     Int?
+  region       String?
+  minTeamSize  Int             @default(1)
+  maxTeamSize  Int             @default(5)
+  applyStartAt DateTime?
+  deadline     DateTime
+  submitTo     String
+  linkUrl      String?
+  status       ContestStatus   @default(PUBLISHED)
+  createdById  String?         @db.Uuid
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  school            School?                   @relation(fields: [schoolId], references: [id])
+  createdBy         User?                     @relation("ContestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  requiredDocuments ContestRequiredDocument[]
+  interests         ContestInterest[]
+  teams             Team[]
+  submissions       Submission[]
+
+  @@index([scope, schoolId])
+  @@index([deadline])
+  @@map("contest")
+}
+
+model ContestRequiredDocument {
+  id          Int          @id @default(autoincrement())
+  contestId   Int
+  type        DocumentType
+  title       String
+  description String?
+  order       Int          @default(0)
+
+  contest Contest              @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  docs    SubmissionDocument[]
+
+  @@map("contest_required_document")
+}
+
+model ContestInterest {
+  userId    String   @db.Uuid
+  contestId Int
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+
+  @@id([userId, contestId])
+  @@index([contestId])
+  @@map("contest_interest")
+}
+
+model Team {
+  id          Int        @id @default(autoincrement())
+  contestId   Int
+  leaderId    String     @db.Uuid
+  name        String
+  description String     @default("")
+  badgeHidden Boolean    @default(false)
+  status      TeamStatus @default(RECRUITING)
+  award       String?
+  confirmedAt DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  contest     Contest       @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  leader      User          @relation("TeamLeader", fields: [leaderId], references: [id])
+  roles       TeamRole[]
+  members     TeamMember[]
+  likes       TeamLike[]
+  invitations Invitation[]
+  messages    ChatMessage[]
+  submission  Submission?
+
+  @@index([contestId, status])
+  @@map("team")
+}
+
+model TeamRole {
+  id       Int    @id @default(autoincrement())
+  teamId   Int
+  name     String
+  capacity Int    @default(1)
+  order    Int    @default(0)
+
+  team        Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+  invitations Invitation[]
+
+  @@unique([teamId, name])
+  @@map("team_role")
+}
+
+model TeamMember {
+  teamId   Int
+  userId   String        @db.Uuid
+  roleId   Int?
+  isLeader Boolean       @default(false)
+  outcome  MemberOutcome @default(NONE)
+  joinedAt DateTime      @default(now())
+
+  team Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role TeamRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@id([teamId, userId])
+  @@index([userId])
+  @@map("team_member")
+}
+
+model TeamLike {
+  userId    String   @db.Uuid
+  teamId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([userId, teamId])
+  @@map("team_like")
+}
+
+model Invitation {
+  id          Int              @id @default(autoincrement())
+  teamId      Int
+  userId      String           @db.Uuid // 팀 밖의 학생 (지원자 / 제안 받는 사람)
+  senderId    String           @db.Uuid
+  roleId      Int?
+  type        InvitationType
+  status      InvitationStatus @default(PENDING)
+  message     String           @default("")
+  createdAt   DateTime         @default(now())
+  respondedAt DateTime?
+
+  team   Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user   User      @relation("InvitationUser", fields: [userId], references: [id], onDelete: Cascade)
+  sender User      @relation("InvitationSender", fields: [senderId], references: [id], onDelete: Cascade)
+  role   TeamRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([teamId, status])
+  @@map("invitation")
+}
+
+model ChatMessage {
+  id        Int         @id @default(autoincrement())
+  teamId    Int
+  senderId  String?     @db.Uuid
+  type      MessageType @default(TEXT)
+  content   String
+  createdAt DateTime    @default(now())
+
+  team   Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  sender User? @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([teamId, id])
+  @@map("chat_message")
+}
+
+model Submission {
+  id          Int              @id @default(autoincrement())
+  teamId      Int              @unique
+  contestId   Int
+  status      SubmissionStatus @default(PREPARING)
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  forwardedAt DateTime?
+  reviewerId  String?          @db.Uuid
+  reviewNote  String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  team       Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  contest    Contest               @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  reviewer   User?                 @relation("SubmissionReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  documents  SubmissionDocument[]
+  signatures SubmissionSignature[]
+
+  @@index([contestId, status])
+  @@map("submission")
+}
+
+model SubmissionDocument {
+  id                 Int            @id @default(autoincrement())
+  submissionId       Int
+  requiredDocumentId Int?
+  type               DocumentType
+  title              String
+  description        String?
+  order              Int            @default(0)
+  status             DocumentStatus @default(PENDING)
+  filePath           String?
+  fileName           String?
+  fileSize           Int?
+  updatedAt          DateTime       @updatedAt
+
+  submission       Submission               @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  requiredDocument ContestRequiredDocument? @relation(fields: [requiredDocumentId], references: [id], onDelete: SetNull)
+
+  @@map("submission_document")
+}
+
+model SubmissionSignature {
+  submissionId Int
+  userId       String   @db.Uuid
+  signedAt     DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([submissionId, userId])
+  @@map("submission_signature")
+}
+
+model UserBadge {
+  userId    String    @db.Uuid
+  code      BadgeCode
+  teamId    Int?
+  awardedAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, code])
+  @@map("user_badge")
+}
