@@ -1,0 +1,17 @@
+targets:
+  $default:
+    builders:
+      json_serializable:
+        options:
+          explicit_to_json: true
+          # 백엔드(Nest) 응답이 camelCase → 이름 변환 없음 (팟쥐는 snake)
+          field_rename: none
+      freezed:
+        options:
+          when: false
+          union_value_case: snake
+
+global_options:
+  json_serializable:
+    runs_before:
+      - retrofit_generator

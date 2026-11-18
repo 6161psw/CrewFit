@@ -1,0 +1,34 @@
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+*.iml
+.idea/
+.metadata
+
+# 생성 코드 (dart run build_runner build -d)
+*.g.dart
+*.freezed.dart
+*.gr.dart
+*.config.dart
+
+# 로컬 설정
+env.json
+
+# Android
+/android/.gradle/
+/android/local.properties
+/android/key.properties
+/android/app/debug
+/android/app/profile
+/android/app/release
+*.jks
+*.keystore
+
+# iOS
+/ios/Pods/
+/ios/.symlinks/
+/ios/Flutter/ephemeral/
