@@ -42,6 +42,9 @@ abstract class TeamApi {
   @POST('/{id}/applications')
   Future<void> apply(@Path() int id, @Body() ApplyRequestModel request);
 
+  @POST('/{id}/offers')
+  Future<void> offer(@Path() int id, @Body() OfferRequestModel request);
+
   /// 팀장: 팀 확정 → 제출 준비 시작
   @POST('/{id}/confirm')
   Future<void> confirm(@Path() int id);

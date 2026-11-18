@@ -143,6 +143,17 @@ class _Header extends StatelessWidget {
         _row('팀 인원', '${c.minTeamSize}~${c.maxTeamSize}명'),
         _row('제출처', c.submitTo.isEmpty ? '-' : c.submitTo),
         _row('관심', '${c.interestCount}명'),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            style: TextButton.styleFrom(padding: EdgeInsets.zero),
+            onPressed: () => context.router.push(
+              InterestedUsersRoute(contestId: c.id, contestTitle: c.title),
+            ),
+            icon: const Icon(Icons.people_outline, size: 18),
+            label: const Text('관심 있는 사람 보기 · 팀원 찾기'),
+          ),
+        ),
         if (c.description.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(c.description),

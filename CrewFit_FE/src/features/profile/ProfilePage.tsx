@@ -18,7 +18,7 @@ export function ProfilePage() {
 
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState(false);
-  const [teamId, setTeamId] = useState<number>();
+  const [teamId, setTeamId] = useState<number | undefined>(Number(params.get('teamId')) || undefined);
   const [roleId, setRoleId] = useState<number>();
   const [message, setMessage] = useState('');
 

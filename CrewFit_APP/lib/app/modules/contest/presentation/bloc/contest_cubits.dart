@@ -55,3 +55,36 @@ class ContestDetailCubit extends LoadCubit<(ContestDetail, TeamPage)> {
     return run(() => _contests.setInterest(id, on));
   }
 }
+
+/// 관심 있는 사람 (팀원 찾기)
+@injectable
+class InterestedUsersCubit extends LoadCubit<InterestedUsers> {
+  final ContestRepository _contests;
+  InterestedUsersCubit(this._contests);
+
+  late final int id;
+  String filter = 'all';
+  String skill = '';
+
+  void open(int contestId) {
+    id = contestId;
+    load();
+  }
+
+  void setFilter(String value) {
+    filter = value;
+    load(silent: true);
+  }
+
+  void search(String value) {
+    skill = value.trim();
+    load(silent: true);
+  }
+
+  @override
+  Future<InterestedUsers> fetch() => _contests.interestedUsers(
+    id,
+    filter: filter,
+    skill: skill.isEmpty ? null : skill,
+  );
+}

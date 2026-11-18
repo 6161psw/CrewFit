@@ -172,6 +172,11 @@ export function ChatRoomPage() {
           <Button variant="outline" onClick={() => nav(`/teams/${id}`)}>
             팀 정보 보기
           </Button>
+          {t.me.isLeader && t.status === 'RECRUITING' && t.openCount > 0 && (
+            <Button variant="outline" onClick={() => nav(`/contests/${t.contest.id}/interested?teamId=${id}`)}>
+              팀원 찾기 · 제안 보내기
+            </Button>
+          )}
           {t.status === 'RECRUITING' && (
             <Button
               variant="danger"

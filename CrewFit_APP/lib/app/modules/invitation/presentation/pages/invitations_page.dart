@@ -96,7 +96,17 @@ class _Item extends StatelessWidget {
               Text(inv.team.name, style: const TextStyle(fontWeight: FontWeight.w700)),
               Text(inv.team.contest.title, style: const TextStyle(fontSize: 12, color: Palette.textSub)),
               const SizedBox(height: 6),
-              Text('${inv.user.name}${inv.role == null ? '' : ' · ${inv.role!.name}'}'),
+              InkWell(
+                onTap: () => context.router.push(ProfileRoute(userId: inv.user.id)),
+                child: Row(
+                  children: [
+                    Avatar(name: inv.user.name, picture: inv.user.picture, size: 22),
+                    const SizedBox(width: 6),
+                    Text('${inv.user.name}${inv.role == null ? '' : ' · ${inv.role!.name}'}'),
+                    const Icon(Icons.chevron_right, size: 16, color: Palette.textMuted),
+                  ],
+                ),
+              ),
               if (inv.message.isNotEmpty)
                 Text('"${inv.message}"', style: const TextStyle(color: Palette.textSub)),
               if (pending) ...[

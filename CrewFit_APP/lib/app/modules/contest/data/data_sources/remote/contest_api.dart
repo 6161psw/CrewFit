@@ -23,6 +23,15 @@ abstract class ContestApi {
   @GET('/{id}')
   Future<ContestDetail> detail(@Path() int id);
 
+  /// filter: all | school | region
+  @GET('/{id}/interested-users')
+  Future<InterestedUsers> interestedUsers(
+    @Path() int id, {
+    @Query('filter') String? filter,
+    @Query('skill') String? skill,
+    @Query('limit') int? limit,
+  });
+
   @POST('/{id}/interest')
   Future<void> addInterest(@Path() int id);
 

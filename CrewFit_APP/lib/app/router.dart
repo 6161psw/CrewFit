@@ -27,5 +27,7 @@ class AppRouter extends RootStackRouter {
     AutoRoute(path: '/submission', page: SubmissionRoute.page),
     AutoRoute(path: '/invitations', page: InvitationsRoute.page),
     AutoRoute(path: '/intro', page: IntroEditRoute.page),
+    AutoRoute(path: '/interested', page: InterestedUsersRoute.page),
+    AutoRoute(path: '/profile', page: ProfileRoute.page),
   ];
 }

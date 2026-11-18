@@ -5,4 +5,5 @@ abstract class ContestRepository {
   Future<ContestPage> list({ScopeTab? scope, String sort = 'deadline', String? q});
   Future<ContestDetail> detail(int id);
   Future<void> setInterest(int id, bool on);
+  Future<InterestedUsers> interestedUsers(int id, {String filter = 'all', String? skill});
 }

@@ -1,6 +1,7 @@
 import 'package:crewfit/app/modules/core/data/dio/api_dio.dart';
 import 'package:crewfit/app/modules/user/data/models/update_intro_request_model.dart';
 import 'package:crewfit/app/modules/user/domain/entities/me_entity.dart';
+import 'package:crewfit/app/modules/user/domain/entities/profile_entity.dart';
 import 'package:dio/dio.dart';
 import 'package:injectable/injectable.dart';
 import 'package:retrofit/retrofit.dart';
@@ -15,6 +16,9 @@ abstract class UserApi {
 
   @GET('me')
   Future<MeEntity> me();
+
+  @GET('{id}')
+  Future<ProfileEntity> profile(@Path() String id);
 
   @PATCH('me/intro')
   Future<void> updateIntro(@Body() UpdateIntroRequestModel request);

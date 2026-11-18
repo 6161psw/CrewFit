@@ -20,6 +20,13 @@ class RestContestRepository implements ContestRepository {
   Future<ContestDetail> detail(int id) => _api.detail(id);
 
   @override
+  Future<InterestedUsers> interestedUsers(
+    int id, {
+    String filter = 'all',
+    String? skill,
+  }) => _api.interestedUsers(id, filter: filter, skill: skill, limit: 100);
+
+  @override
   Future<void> setInterest(int id, bool on) =>
       on ? _api.addInterest(id) : _api.removeInterest(id);
 }

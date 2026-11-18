@@ -1,3 +1,4 @@
+import 'package:crewfit/app/modules/common/domain/entities/refs.dart';
 import 'package:crewfit/app/modules/common/domain/enums/statuses.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
@@ -84,4 +85,29 @@ abstract class MyTeamRef with _$MyTeamRef {
 
   factory MyTeamRef.fromJson(Map<String, dynamic> json) =>
       _$MyTeamRefFromJson(json);
+}
+
+/// GET /contests/:id/interested-users
+@freezed
+abstract class InterestedUsers with _$InterestedUsers {
+  const factory InterestedUsers({
+    @Default(InterestedCounts()) InterestedCounts counts,
+    @Default([]) List<UserSummary> items,
+    @Default(0) int total,
+  }) = _InterestedUsers;
+
+  factory InterestedUsers.fromJson(Map<String, dynamic> json) =>
+      _$InterestedUsersFromJson(json);
+}
+
+@freezed
+abstract class InterestedCounts with _$InterestedCounts {
+  const factory InterestedCounts({
+    @Default(0) int all,
+    @Default(0) int school,
+    @Default(0) int region,
+  }) = _InterestedCounts;
+
+  factory InterestedCounts.fromJson(Map<String, dynamic> json) =>
+      _$InterestedCountsFromJson(json);
 }

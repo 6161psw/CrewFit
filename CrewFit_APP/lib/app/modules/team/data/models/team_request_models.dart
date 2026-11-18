@@ -29,6 +29,19 @@ abstract class CreateTeamRequestModel with _$CreateTeamRequestModel {
       _$CreateTeamRequestModelFromJson(json);
 }
 
+/// 팀장 → 학생 제안 (H-06)
+@freezed
+abstract class OfferRequestModel with _$OfferRequestModel {
+  const factory OfferRequestModel({
+    required String userId,
+    required int roleId,
+    String? message,
+  }) = _OfferRequestModel;
+
+  factory OfferRequestModel.fromJson(Map<String, dynamic> json) =>
+      _$OfferRequestModelFromJson(json);
+}
+
 @freezed
 abstract class ApplyRequestModel with _$ApplyRequestModel {
   const factory ApplyRequestModel({required int roleId, String? message}) =

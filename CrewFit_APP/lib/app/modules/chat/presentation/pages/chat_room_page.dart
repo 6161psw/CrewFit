@@ -51,6 +51,10 @@ class _View extends StatelessWidget {
             onSelected: (v) => _menu(context, v),
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'info', child: Text('팀 정보')),
+              if (t?.me.isLeader == true &&
+                  t?.status == TeamStatus.recruiting &&
+                  (t?.openCount ?? 0) > 0)
+                const PopupMenuItem(value: 'find', child: Text('팀원 찾기 · 제안 보내기')),
               if (t?.me.isLeader == true && t?.status == TeamStatus.recruiting)
                 const PopupMenuItem(value: 'confirm', child: Text('팀 확정 (모집 마감)')),
               if (t?.me.isLeader == false)
@@ -73,6 +77,17 @@ class _View extends StatelessWidget {
     switch (v) {
       case 'info':
         await context.router.push(TeamPreviewRoute(teamId: team.id));
+      case 'find':
+        final t = team.data;
+        if (t == null) return;
+        await context.router.push(
+          InterestedUsersRoute(
+            contestId: t.contest.id,
+            contestTitle: t.contest.title,
+            teamId: t.id,
+          ),
+        );
+        team.load(silent: true);
       case 'confirm':
         final ok = await _ask(context, '팀을 확정할까요? 모집이 마감되고 제출 준비가 시작돼요.');
         if (!ok) return;

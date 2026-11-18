@@ -100,6 +100,7 @@ class _View extends StatelessWidget {
                 trailing: m.schoolVerified
                     ? const Icon(Icons.verified, color: Palette.primary, size: 18)
                     : null,
+                onTap: () => context.router.push(ProfileRoute(userId: m.id)),
               ),
           ],
         ),

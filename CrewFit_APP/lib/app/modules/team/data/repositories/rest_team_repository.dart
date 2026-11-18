@@ -56,5 +56,16 @@ class RestTeamRepository implements TeamRepository {
       _api.apply(id, ApplyRequestModel(roleId: roleId, message: message));
 
   @override
+  Future<void> offer(
+    int id, {
+    required String userId,
+    required int roleId,
+    String? message,
+  }) => _api.offer(
+    id,
+    OfferRequestModel(userId: userId, roleId: roleId, message: message),
+  );
+
+  @override
   Future<void> confirm(int id) => _api.confirm(id);
 }

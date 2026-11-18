@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, qs } from '../../api/client';
 import type { ContestDetail, UserSummary } from '../../api/types';
 import { Chip, Empty, errMsg, Loading, Screen, TopBar } from '../../components/ui';
@@ -18,6 +18,8 @@ interface Res {
 /** H-04 관심 있는 사람 (같은 공고에 관심 표시한 사람끼리만) */
 export function InterestedUsersPage() {
   const id = Number(useParams().id);
+  /** 채팅방 '팀원 찾기'에서 온 경우 제안할 팀 */
+  const teamId = useSearchParams()[0].get('teamId');
   const nav = useNavigate();
   const [filter, setFilter] = useState<Filter>('all');
   const [skill, setSkill] = useState('');
@@ -64,7 +66,7 @@ export function InterestedUsersPage() {
               line={[u.school?.shortName, majorYear(u.major, u.admissionYear)].filter(Boolean).join(' · ')}
               skills={u.skills}
               stat={u.completionRate !== null ? `완주율 ${u.completionRate}%` : null}
-              onClick={() => nav(`/users/${u.id}?contestId=${id}`)}
+              onClick={() => nav(`/users/${u.id}?contestId=${id}${teamId ? `&teamId=${teamId}` : ''}`)}
             />
           ))}
         </div>
