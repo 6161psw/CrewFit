@@ -44,4 +44,4 @@ src/
 
 - 아이콘: lucide-react (피그마 아이콘과 같은 계열). 피그마 SVG 로 바꾸려면 `src/assets` 에 내보내 교체.
 - 학교 메일 인증 화면(S-02~05): 보류. 학교 구글 계정이면 자동 인증.
-- 앱: 이 빌드를 Capacitor 로 감싸면 됨 (`mobile/README.md`).
+- 앱: Flutter 별도 (`../CrewFit_APP`).
