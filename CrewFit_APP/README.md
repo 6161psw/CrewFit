@@ -1,5 +1,7 @@
 # CrewFit_APP — Flutter 학생 앱 (Android 우선)
 
+> ⏸ **보류** (2026-11-27) — 웹 + 외부 공고 수집 먼저. 코드 유지, 지우지 말 것. 재개 시 BE API 변경분(contest.source 등) 반영.
+
 구조 = 교육자료 · 팟쥐(pot-g-flutter) 방식.
 
 | 항목 | 사용 |

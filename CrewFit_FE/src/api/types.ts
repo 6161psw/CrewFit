@@ -89,7 +89,11 @@ export interface ContestCard {
   interestCount: number;
   recruitingTeamCount: number;
   isInterested: boolean;
+  source: ContestSource;
 }
+
+export type ContestSource = 'MANUAL' | 'KSTARTUP' | 'WEVITY' | 'GIST';
+export const SOURCE_LABEL: Record<ContestSource, string> = { MANUAL: '', KSTARTUP: 'K-Startup', WEVITY: '위비티', GIST: 'GIST 공지' };
 
 export interface ContestDetail extends ContestCard {
   description: string;

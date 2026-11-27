@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Bell, FileText, LayoutGrid, LogOut, Megaphone, Send, Settings, Trophy, Users } from 'lucide-react';
+import { Bell, CloudDownload, FileText, LayoutGrid, LogOut, Megaphone, Send, Settings, Trophy, Users } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { api } from '../../api/client';
 import { useLogout } from '../../auth/auth';
@@ -14,6 +14,7 @@ const MENU = [
   { to: '/admin/documents', label: '서류 보관함', Icon: FileText, end: false },
   { to: '/admin/forward', label: '운영사 전달', Icon: Send, end: false },
   { to: '/admin/contests/new', label: '공고 등록', Icon: Megaphone, end: true },
+  { to: '/admin/crawler', label: '외부 공고 수집', Icon: CloudDownload, end: true },
 ];
 
 /** 크루핏 for School 레이아웃 (PC) */

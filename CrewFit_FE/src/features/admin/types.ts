@@ -58,6 +58,7 @@ export interface AdminContest {
   operatorEmail: string | null;
   linkUrl: string | null;
   status: 'DRAFT' | 'PUBLISHED' | 'CLOSED';
+  source: 'MANUAL' | 'KSTARTUP' | 'WEVITY' | 'GIST';
   school: { shortName: string } | null;
   requiredDocuments: { id: number; type: string; title: string; description: string | null }[];
   _count: { interests: number; teams: number };

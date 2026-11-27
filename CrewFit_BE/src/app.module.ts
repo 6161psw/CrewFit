@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
@@ -9,6 +10,7 @@ import { AllExceptionsFilter } from './common/filter/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptor/logging.interceptor';
 import { validateEnv } from './config/env.validation';
 import { ContestModule } from './contest/contest.module';
+import { CrawlerModule } from './crawler/crawler.module';
 import { HealthModule } from './health/health.module';
 import { InvitationModule } from './invitation/invitation.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -21,6 +23,7 @@ import { UserModule } from './user/user.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     StorageModule,
     BadgeModule,
@@ -34,6 +37,7 @@ import { UserModule } from './user/user.module';
     InvitationModule,
     SubmissionModule,
     AdminModule,
+    CrawlerModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

@@ -36,7 +36,10 @@ export function AdminContestsPage() {
               {data.map((c) => (
                 <tr key={c.id} className="border-t border-line">
                   <td className="px-4 py-3">
-                    <p className="font-semibold">{c.title}</p>
+                    <p className="font-semibold">
+                      {c.source !== 'MANUAL' && <Chip className="mr-1.5">자동 수집</Chip>}
+                      {c.title}
+                    </p>
                     <p className="text-xs text-sub">
                       {c.organizer} · {c.categoryLabel} · 제출처 {c.submitTo}
                     </p>

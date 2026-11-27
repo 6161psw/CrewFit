@@ -1,6 +1,6 @@
 import { Heart } from 'lucide-react';
 import { useNavigate } from 'react-router';
-import type { ContestCard as Contest, TeamCard as Team } from '../../api/types';
+import { SOURCE_LABEL, type ContestCard as Contest, type TeamCard as Team } from '../../api/types';
 import { Avatar, Chip } from '../../components/ui';
 import { categoryColor, cx, dDayLabel } from '../../lib/format';
 
@@ -18,6 +18,7 @@ export function ContestCard({ c }: { c: Contest }) {
         <span className="truncate text-[15px] font-semibold">{c.title}</span>
         <span className="flex items-center gap-2">
           <Chip tone="red">{dDayLabel(c.dDay)}</Chip>
+          {c.source && c.source !== 'MANUAL' && <Chip>{SOURCE_LABEL[c.source]}</Chip>}
           <span className="text-xs font-semibold text-primary">모집 중인 팀 {c.recruitingTeamCount}</span>
         </span>
       </span>

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { ContestScope, UserRole } from '@prisma/client';
+import { ContestScope, ContestSource, UserRole } from '@prisma/client';
 import { AuthUser } from '../common/types/auth-user.type';
 import { CATEGORY_LABEL } from '../common/utils/labels';
 import { adminContestWhere } from '../common/utils/scope.util';
@@ -55,8 +55,9 @@ export class AdminContestService {
 
   /** 팀이 있으면 마감(CLOSED), 없으면 삭제 */
   async remove(user: AuthUser, id: number) {
-    await this.access.contest(user, id);
-    if (await this.adminRepository.countTeams(id)) {
+    const c = await this.access.contest(user, id);
+    // 수집 공고는 지우면 다음 수집 때 다시 생김 → 마감 처리
+    if (c.source !== ContestSource.MANUAL || (await this.adminRepository.countTeams(id))) {
       await this.adminRepository.closeContest(id);
       return { closed: true };
     }

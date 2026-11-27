@@ -28,6 +28,7 @@ export function toContestCard(c: ContestCardRow) {
     interestCount: c._count.interests,
     recruitingTeamCount: c._count.teams,
     isInterested: c.interests.length > 0,
+    source: c.source,
   };
 }
 

@@ -4,6 +4,7 @@ import { tokenStore } from './api/client';
 import { isAdminRole, useMe } from './auth/auth';
 import { Loading } from './components/ui';
 import { AdminContestFormPage, AdminContestsPage } from './features/admin/AdminContestsPage';
+import { AdminCrawlerPage } from './features/admin/AdminCrawlerPage';
 import { AdminDashboardPage } from './features/admin/AdminDashboardPage';
 import { AdminDocumentsPage } from './features/admin/AdminDocumentsPage';
 import { AdminForwardPage } from './features/admin/AdminForwardPage';
@@ -67,6 +68,7 @@ export function App() {
         <Route path="teams" element={<AdminTeamsPage />} />
         <Route path="documents" element={<AdminDocumentsPage />} />
         <Route path="forward" element={<AdminForwardPage />} />
+        <Route path="crawler" element={<AdminCrawlerPage />} />
         <Route path="settings" element={<AdminSettingsPage />} />
       </Route>
 

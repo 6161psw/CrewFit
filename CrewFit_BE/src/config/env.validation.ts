@@ -82,6 +82,43 @@ export class Env {
   @Transform(bool(true))
   @IsBoolean()
   SWAGGER_ENABLED = true;
+
+  /** 외부 공고 자동 수집 (매일 06:00 KST) */
+  @Transform(bool(true))
+  @IsBoolean()
+  CRAWL_ENABLED = true;
+
+  @IsOptional()
+  @IsString()
+  CRAWL_USER_AGENT = '';
+
+  @Transform(num(800))
+  @IsInt()
+  CRAWL_DELAY_MS = 800;
+
+  /** 공공데이터포털 K-Startup 일반 인증키 (Decoding). 비우면 비활성 */
+  @IsOptional()
+  @IsString()
+  KSTARTUP_API_KEY = '';
+
+  /** 공고명 키워드 필터 (콤마). 비우면 전부 */
+  @IsOptional()
+  @IsString()
+  KSTARTUP_KEYWORDS = '';
+
+  /** 위비티 목록 페이지 수. 0 = 비활성 */
+  @Transform(num(3))
+  @IsInt()
+  WEVITY_PAGES = 3;
+
+  /** GIST 공지 목록 URL (콤마). 비우면 비활성 */
+  @IsOptional()
+  @IsString()
+  GIST_NOTICE_URLS = '';
+
+  @IsOptional()
+  @IsString()
+  GIST_KEYWORDS = '';
 }
 
 export function validateEnv(raw: Record<string, unknown>): Env {

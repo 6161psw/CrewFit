@@ -1,0 +1,1455 @@
+diff --git a/CrewFit_APP/README.md b/CrewFit_APP/README.md
+index 04f29f3..2b5689f 100644
+--- a/CrewFit_APP/README.md
++++ b/CrewFit_APP/README.md
+@@ -1,5 +1,7 @@
+ # CrewFit_APP — Flutter 학생 앱 (Android 우선)
+ 
++> ⏸ **보류** (2026-11-27) — 웹 + 외부 공고 수집 먼저. 코드 유지, 지우지 말 것. 재개 시 BE API 변경분(contest.source 등) 반영.
++
+ 구조 = 교육자료 · 팟쥐(pot-g-flutter) 방식.
+ 
+ | 항목 | 사용 |
+diff --git a/CrewFit_BE/.env.example b/CrewFit_BE/.env.example
+index 396a598..abcbf91 100644
+--- a/CrewFit_BE/.env.example
++++ b/CrewFit_BE/.env.example
+@@ -18,9 +18,6 @@ GOOGLE_CLIENT_SECRET=
+ # 비우면 {API_URL}/auth/google/callback
+ GOOGLE_CALLBACK_URL=
+ # 앱(iOS/Android) idToken audience 추가 (콤마 구분)
+-# [v6 변경] Flutter 앱은 serverClientId=GOOGLE_CLIENT_ID(웹) 로 idToken 받음 → 보통 비워둬도 됨.
+-#           Android OAuth 클라이언트(패키지 kr.crewfit.crewfit + SHA-1)는 Google Cloud 에 "생성만" 필요.
+-#           폰 접속: API_URL 은 그대로 두고 앱 env.json 의 API_URL=http://<PC IP>:3000
+ GOOGLE_MOBILE_CLIENT_IDS=
+ 
+ # 웹/API 도메인 다르면 none + true
+@@ -35,3 +32,19 @@ DEV_LOGIN_ENABLED=true
+ UPLOAD_DIR=./uploads
+ MAX_UPLOAD_MB=10
+ SWAGGER_ENABLED=true
++
++# [v7 변경] 외부 공모전 자동 수집 (매일 06:00 KST + 관리자 /admin/crawler '지금 수집')
++CRAWL_ENABLED=true
++# 비우면 기본 UA
++CRAWL_USER_AGENT=
++# 요청 간격(ms)
++CRAWL_DELAY_MS=800
++# [v7 변경] data.go.kr '창업진흥원_K-Startup 조회서비스'(15125364) 활용신청 → 일반 인증키(Decoding). 비우면 비활성
++KSTARTUP_API_KEY=
++# [v7 변경] 공고명 키워드 필터 (콤마, 비우면 전부)
++KSTARTUP_KEYWORDS=경진대회,공모전,해커톤,챌린지,대회,데모데이,오디션,예비창업,창업동아리,아이디어
++# [v7 변경] 위비티 목록 페이지 수 (0 = 끔)
++WEVITY_PAGES=3
++# [v7 변경] GIST 공지 목록 URL (콤마). robots.txt 차단 → 학교 허가 후 입력. 비우면 끔
++GIST_NOTICE_URLS=
++GIST_KEYWORDS=공모전,경진대회,해커톤,대회,창업,챌린지,모집
+diff --git a/CrewFit_BE/package.json b/CrewFit_BE/package.json
+index 8c6ee7e..b265f32 100644
+--- a/CrewFit_BE/package.json
++++ b/CrewFit_BE/package.json
+@@ -23,9 +23,11 @@
+     "@nestjs/passport": "^11.0.5",
+     "@nestjs/platform-express": "^11.2.10",
+     "@nestjs/platform-socket.io": "^11.2.10",
++    "@nestjs/schedule": "^6.0.1",
+     "@nestjs/swagger": "^11.4.8",
+     "@nestjs/websockets": "^11.2.10",
+     "@prisma/client": "^6.19.3",
++    "cheerio": "^1.1.2",
+     "class-transformer": "^0.5.1",
+     "class-validator": "^0.14.4",
+     "cookie-parser": "^1.4.7",
+diff --git a/CrewFit_BE/prisma/migrations/20261127090000_crawler/migration.sql b/CrewFit_BE/prisma/migrations/20261127090000_crawler/migration.sql
+new file mode 100644
+index 0000000..9097284
+--- /dev/null
++++ b/CrewFit_BE/prisma/migrations/20261127090000_crawler/migration.sql
+@@ -0,0 +1,32 @@
++-- CreateEnum
++CREATE TYPE "ContestSource" AS ENUM ('MANUAL', 'KSTARTUP', 'WEVITY', 'GIST');
++
++-- CreateEnum
++CREATE TYPE "CrawlTrigger" AS ENUM ('SCHEDULE', 'MANUAL');
++
++-- AlterTable
++ALTER TABLE "contest" ADD COLUMN     "externalId" TEXT,
++ADD COLUMN     "source" "ContestSource" NOT NULL DEFAULT 'MANUAL';
++
++-- CreateTable
++CREATE TABLE "crawl_run" (
++    "id" SERIAL NOT NULL,
++    "source" "ContestSource" NOT NULL,
++    "trigger" "CrawlTrigger" NOT NULL,
++    "triggeredById" UUID,
++    "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "finishedAt" TIMESTAMP(3),
++    "fetched" INTEGER NOT NULL DEFAULT 0,
++    "created" INTEGER NOT NULL DEFAULT 0,
++    "updated" INTEGER NOT NULL DEFAULT 0,
++    "skipped" INTEGER NOT NULL DEFAULT 0,
++    "error" TEXT,
++
++    CONSTRAINT "crawl_run_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateIndex
++CREATE INDEX "crawl_run_source_startedAt_idx" ON "crawl_run"("source", "startedAt");
++
++-- CreateIndex
++CREATE UNIQUE INDEX "contest_source_externalId_key" ON "contest"("source", "externalId");
+diff --git a/CrewFit_BE/prisma/schema.prisma b/CrewFit_BE/prisma/schema.prisma
+index f33b6cf..dc383c2 100644
+--- a/CrewFit_BE/prisma/schema.prisma
++++ b/CrewFit_BE/prisma/schema.prisma
+@@ -34,6 +34,19 @@ enum ContestCategory {
+   ETC
+ }
+ 
++/** 공고 출처 (MANUAL = 관리자 등록, 나머지 = 자동 수집) */
++enum ContestSource {
++  MANUAL
++  KSTARTUP
++  WEVITY
++  GIST
++}
++
++enum CrawlTrigger {
++  SCHEDULE
++  MANUAL
++}
++
+ enum ContestStatus {
+   DRAFT
+   PUBLISHED
+@@ -220,6 +233,8 @@ model Contest {
+   operatorEmail String?
+   linkUrl       String?
+   status       ContestStatus   @default(PUBLISHED)
++  source       ContestSource   @default(MANUAL)
++  externalId   String?
+   createdById  String?         @db.Uuid
+   createdAt    DateTime        @default(now())
+   updatedAt    DateTime        @updatedAt
+@@ -232,6 +247,7 @@ model Contest {
+   submissions       Submission[]
+   forwardBatches    ForwardBatch[]
+ 
++  @@unique([source, externalId])
+   @@index([scope, schoolId])
+   @@index([deadline])
+   @@map("contest")
+@@ -500,3 +516,21 @@ model AdminInvite {
+ 
+   @@map("admin_invite")
+ }
++
++/** 외부 공고 수집 기록 */
++model CrawlRun {
++  id            Int           @id @default(autoincrement())
++  source        ContestSource
++  trigger       CrawlTrigger
++  triggeredById String?       @db.Uuid
++  startedAt     DateTime      @default(now())
++  finishedAt    DateTime?
++  fetched       Int           @default(0)
++  created       Int           @default(0)
++  updated       Int           @default(0)
++  skipped       Int           @default(0)
++  error         String?
++
++  @@index([source, startedAt])
++  @@map("crawl_run")
++}
+diff --git a/CrewFit_BE/src/admin/admin-contest.service.ts b/CrewFit_BE/src/admin/admin-contest.service.ts
+index 496c261..50d21f3 100644
+--- a/CrewFit_BE/src/admin/admin-contest.service.ts
++++ b/CrewFit_BE/src/admin/admin-contest.service.ts
+@@ -1,5 +1,5 @@
+ import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+-import { ContestScope, UserRole } from '@prisma/client';
++import { ContestScope, ContestSource, UserRole } from '@prisma/client';
+ import { AuthUser } from '../common/types/auth-user.type';
+ import { CATEGORY_LABEL } from '../common/utils/labels';
+ import { adminContestWhere } from '../common/utils/scope.util';
+@@ -55,8 +55,9 @@ export class AdminContestService {
+ 
+   /** 팀이 있으면 마감(CLOSED), 없으면 삭제 */
+   async remove(user: AuthUser, id: number) {
+-    await this.access.contest(user, id);
+-    if (await this.adminRepository.countTeams(id)) {
++    const c = await this.access.contest(user, id);
++    // 수집 공고는 지우면 다음 수집 때 다시 생김 → 마감 처리
++    if (c.source !== ContestSource.MANUAL || (await this.adminRepository.countTeams(id))) {
+       await this.adminRepository.closeContest(id);
+       return { closed: true };
+     }
+diff --git a/CrewFit_BE/src/app.module.ts b/CrewFit_BE/src/app.module.ts
+index 5cff671..555d8f5 100644
+--- a/CrewFit_BE/src/app.module.ts
++++ b/CrewFit_BE/src/app.module.ts
+@@ -1,5 +1,6 @@
+ import { Module } from '@nestjs/common';
+ import { ConfigModule } from '@nestjs/config';
++import { ScheduleModule } from '@nestjs/schedule';
+ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+ import { AdminModule } from './admin/admin.module';
+ import { AuthModule } from './auth/auth.module';
+@@ -9,6 +10,7 @@ import { AllExceptionsFilter } from './common/filter/all-exceptions.filter';
+ import { LoggingInterceptor } from './common/interceptor/logging.interceptor';
+ import { validateEnv } from './config/env.validation';
+ import { ContestModule } from './contest/contest.module';
++import { CrawlerModule } from './crawler/crawler.module';
+ import { HealthModule } from './health/health.module';
+ import { InvitationModule } from './invitation/invitation.module';
+ import { PrismaModule } from './prisma/prisma.module';
+@@ -21,6 +23,7 @@ import { UserModule } from './user/user.module';
+ @Module({
+   imports: [
+     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
++    ScheduleModule.forRoot(),
+     PrismaModule,
+     StorageModule,
+     BadgeModule,
+@@ -34,6 +37,7 @@ import { UserModule } from './user/user.module';
+     InvitationModule,
+     SubmissionModule,
+     AdminModule,
++    CrawlerModule,
+   ],
+   providers: [
+     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+diff --git a/CrewFit_BE/src/config/env.validation.ts b/CrewFit_BE/src/config/env.validation.ts
+index fa2de8c..81c544c 100644
+--- a/CrewFit_BE/src/config/env.validation.ts
++++ b/CrewFit_BE/src/config/env.validation.ts
+@@ -82,6 +82,43 @@ export class Env {
+   @Transform(bool(true))
+   @IsBoolean()
+   SWAGGER_ENABLED = true;
++
++  /** 외부 공고 자동 수집 (매일 06:00 KST) */
++  @Transform(bool(true))
++  @IsBoolean()
++  CRAWL_ENABLED = true;
++
++  @IsOptional()
++  @IsString()
++  CRAWL_USER_AGENT = '';
++
++  @Transform(num(800))
++  @IsInt()
++  CRAWL_DELAY_MS = 800;
++
++  /** 공공데이터포털 K-Startup 일반 인증키 (Decoding). 비우면 비활성 */
++  @IsOptional()
++  @IsString()
++  KSTARTUP_API_KEY = '';
++
++  /** 공고명 키워드 필터 (콤마). 비우면 전부 */
++  @IsOptional()
++  @IsString()
++  KSTARTUP_KEYWORDS = '';
++
++  /** 위비티 목록 페이지 수. 0 = 비활성 */
++  @Transform(num(3))
++  @IsInt()
++  WEVITY_PAGES = 3;
++
++  /** GIST 공지 목록 URL (콤마). 비우면 비활성 */
++  @IsOptional()
++  @IsString()
++  GIST_NOTICE_URLS = '';
++
++  @IsOptional()
++  @IsString()
++  GIST_KEYWORDS = '';
+ }
+ 
+ export function validateEnv(raw: Record<string, unknown>): Env {
+diff --git a/CrewFit_BE/src/contest/contest.service.ts b/CrewFit_BE/src/contest/contest.service.ts
+index f1ebefb..2ac77f2 100644
+--- a/CrewFit_BE/src/contest/contest.service.ts
++++ b/CrewFit_BE/src/contest/contest.service.ts
+@@ -28,6 +28,7 @@ export function toContestCard(c: ContestCardRow) {
+     interestCount: c._count.interests,
+     recruitingTeamCount: c._count.teams,
+     isInterested: c.interests.length > 0,
++    source: c.source,
+   };
+ }
+ 
+diff --git a/CrewFit_BE/src/crawler/crawler.controller.ts b/CrewFit_BE/src/crawler/crawler.controller.ts
+new file mode 100644
+index 0000000..d6485c2
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/crawler.controller.ts
+@@ -0,0 +1,38 @@
++import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
++import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
++import { CrawlTrigger, UserRole } from '@prisma/client';
++import { JwtGuard } from '../auth/guard/jwt.guard';
++import { RolesGuard } from '../auth/guard/roles.guard';
++import { GetUser } from '../common/decorator/get-user.decorator';
++import { Roles } from '../common/decorator/roles.decorator';
++import { AuthUser } from '../common/types/auth-user.type';
++import { CrawlerService } from './crawler.service';
++import { CrawlRunsQuery, RunCrawlDto } from './dto/req/run-crawl.dto';
++
++@ApiTags('admin')
++@ApiBearerAuth()
++@UseGuards(JwtGuard, RolesGuard)
++@Roles(UserRole.SCHOOL_ADMIN, UserRole.SUPER_ADMIN)
++@Controller('admin/crawler')
++export class CrawlerController {
++  constructor(private readonly crawlerService: CrawlerService) {}
++
++  /** 수집 소스 상태 */
++  @Get('sources')
++  async sources() {
++    return { running: this.crawlerService.isRunning, sources: await this.crawlerService.sources() };
++  }
++
++  /** 수집 기록 */
++  @Get('runs')
++  runs(@Query() q: CrawlRunsQuery) {
++    return this.crawlerService.runs(q.source);
++  }
++
++  /** 지금 수집 (최고 관리자) */
++  @Post('run')
++  @Roles(UserRole.SUPER_ADMIN)
++  run(@GetUser() user: AuthUser, @Body() dto: RunCrawlDto) {
++    return this.crawlerService.run(CrawlTrigger.MANUAL, { source: dto.source, userId: user.id });
++  }
++}
+diff --git a/CrewFit_BE/src/crawler/crawler.module.ts b/CrewFit_BE/src/crawler/crawler.module.ts
+new file mode 100644
+index 0000000..d42cda3
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/crawler.module.ts
+@@ -0,0 +1,28 @@
++import { Module } from '@nestjs/common';
++import { CrawlerController } from './crawler.controller';
++import { CrawlerRepository } from './crawler.repository';
++import { CrawlerScheduler } from './crawler.scheduler';
++import { CrawlerService } from './crawler.service';
++import { CONTEST_SOURCE_ADAPTERS } from './crawler.types';
++import { GistSource } from './sources/gist.source';
++import { KStartupSource } from './sources/kstartup.source';
++import { WevitySource } from './sources/wevity.source';
++
++/** 외부 공모전 자동 수집. 새 소스 = ContestSourceAdapter 구현 + 아래 등록 + ContestSource enum 추가 */
++@Module({
++  controllers: [CrawlerController],
++  providers: [
++    CrawlerRepository,
++    CrawlerService,
++    CrawlerScheduler,
++    KStartupSource,
++    WevitySource,
++    GistSource,
++    {
++      provide: CONTEST_SOURCE_ADAPTERS,
++      useFactory: (...a: [GistSource, KStartupSource, WevitySource]) => a,
++      inject: [GistSource, KStartupSource, WevitySource],
++    },
++  ],
++})
++export class CrawlerModule {}
+diff --git a/CrewFit_BE/src/crawler/crawler.repository.ts b/CrewFit_BE/src/crawler/crawler.repository.ts
+new file mode 100644
+index 0000000..ab7e20d
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/crawler.repository.ts
+@@ -0,0 +1,77 @@
++import { Injectable } from '@nestjs/common';
++import { ContestSource, ContestStatus, CrawlTrigger, Prisma } from '@prisma/client';
++import { PrismaService } from '../prisma/prisma.service';
++import { CrawledContest } from './crawler.types';
++
++@Injectable()
++export class CrawlerRepository {
++  constructor(private readonly prisma: PrismaService) {}
++
++  startRun(source: ContestSource, trigger: CrawlTrigger, triggeredById?: string) {
++    return this.prisma.crawlRun.create({ data: { source, trigger, triggeredById } });
++  }
++
++  finishRun(id: number, data: Pick<Prisma.CrawlRunUpdateInput, 'fetched' | 'created' | 'updated' | 'skipped' | 'error'>) {
++    return this.prisma.crawlRun.update({ where: { id }, data: { ...data, finishedAt: new Date() } });
++  }
++
++  runs(source?: ContestSource, take = 30) {
++    return this.prisma.crawlRun.findMany({ where: source ? { source } : {}, orderBy: { id: 'desc' }, take });
++  }
++
++  lastRun(source: ContestSource) {
++    return this.prisma.crawlRun.findFirst({ where: { source }, orderBy: { id: 'desc' } });
++  }
++
++  countBySource() {
++    return this.prisma.contest.groupBy({
++      by: ['source'],
++      where: { status: ContestStatus.PUBLISHED, deadline: { gte: new Date() } },
++      _count: { _all: true },
++    });
++  }
++
++  find(source: ContestSource, externalId: string) {
++    return this.prisma.contest.findUnique({
++      where: { source_externalId: { source, externalId } },
++      select: { id: true, status: true },
++    });
++  }
++
++  create(source: ContestSource, c: CrawledContest) {
++    return this.prisma.contest.create({
++      data: {
++        source,
++        externalId: c.externalId,
++        title: c.title,
++        organizer: c.organizer,
++        description: c.description ?? '',
++        category: c.category,
++        tags: c.tags,
++        scope: c.scope,
++        schoolId: c.schoolId ?? null,
++        region: c.region ?? null,
++        applyStartAt: c.applyStartAt ?? null,
++        deadline: c.deadline,
++        linkUrl: c.linkUrl,
++        submitTo: c.submitTo,
++        status: ContestStatus.PUBLISHED,
++      },
++    });
++  }
++
++  /** 관리자가 고친 분류·태그·팀 인원은 유지, 원문 정보만 갱신 */
++  update(id: number, c: CrawledContest) {
++    return this.prisma.contest.update({
++      where: { id },
++      data: {
++        title: c.title,
++        organizer: c.organizer,
++        ...(c.description ? { description: c.description } : {}),
++        applyStartAt: c.applyStartAt ?? undefined,
++        deadline: c.deadline,
++        linkUrl: c.linkUrl,
++      },
++    });
++  }
++}
+diff --git a/CrewFit_BE/src/crawler/crawler.scheduler.ts b/CrewFit_BE/src/crawler/crawler.scheduler.ts
+new file mode 100644
+index 0000000..69b257e
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/crawler.scheduler.ts
+@@ -0,0 +1,28 @@
++import { Injectable, Logger } from '@nestjs/common';
++import { ConfigService } from '@nestjs/config';
++import { Cron } from '@nestjs/schedule';
++import { CrawlTrigger } from '@prisma/client';
++import { Env } from '../config/env.validation';
++import { CrawlerService } from './crawler.service';
++
++/** 매일 06:00 KST 자동 수집 (CRAWL_ENABLED=false 면 끔) */
++@Injectable()
++export class CrawlerScheduler {
++  private readonly logger = new Logger(CrawlerScheduler.name);
++
++  constructor(
++    private readonly config: ConfigService<Env, true>,
++    private readonly crawlerService: CrawlerService,
++  ) {}
++
++  @Cron('0 6 * * *', { name: 'contest-crawl', timeZone: 'Asia/Seoul' })
++  async daily() {
++    if (!this.config.get('CRAWL_ENABLED', { infer: true }) || this.crawlerService.isRunning) return;
++    try {
++      const r = await this.crawlerService.run(CrawlTrigger.SCHEDULE);
++      this.logger.log(`자동 수집 완료: ${r.map((x) => `${x.source} +${x.created}/~${x.updated}${x.error ? ' ERR' : ''}`).join(', ')}`);
++    } catch (e) {
++      this.logger.error(`자동 수집 실패: ${(e as Error).message}`);
++    }
++  }
++}
+diff --git a/CrewFit_BE/src/crawler/crawler.service.ts b/CrewFit_BE/src/crawler/crawler.service.ts
+new file mode 100644
+index 0000000..71a53a0
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/crawler.service.ts
+@@ -0,0 +1,94 @@
++import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
++import { ContestSource, ContestStatus, CrawlTrigger } from '@prisma/client';
++import { startOfToday } from '../common/utils/date.util';
++import { CrawlerRepository } from './crawler.repository';
++import { CONTEST_SOURCE_ADAPTERS, ContestSourceAdapter } from './crawler.types';
++
++@Injectable()
++export class CrawlerService {
++  private readonly logger = new Logger(CrawlerService.name);
++  private running = false;
++
++  constructor(
++    @Inject(CONTEST_SOURCE_ADAPTERS) private readonly adapters: ContestSourceAdapter[],
++    private readonly crawlerRepository: CrawlerRepository,
++  ) {}
++
++  get isRunning() {
++    return this.running;
++  }
++
++  async sources() {
++    const counts = await this.crawlerRepository.countBySource();
++    return Promise.all(
++      this.adapters.map(async (a) => ({
++        key: a.key,
++        name: a.name,
++        enabled: a.enabled(),
++        disabledReason: a.disabledReason?.() ?? null,
++        activeCount: counts.find((c) => c.source === a.key)?._count._all ?? 0,
++        lastRun: await this.crawlerRepository.lastRun(a.key),
++      })),
++    );
++  }
++
++  runs(source?: ContestSource) {
++    return this.crawlerRepository.runs(source);
++  }
++
++  /** 전체(활성 소스) 또는 한 소스 수집. 동시 실행 막음 */
++  async run(trigger: CrawlTrigger, opts: { source?: ContestSource; userId?: string } = {}) {
++    if (this.running) throw new ConflictException('수집 진행 중');
++    const targets = opts.source ? this.adapters.filter((a) => a.key === opts.source) : this.adapters.filter((a) => a.enabled());
++    if (opts.source && !targets.length) throw new NotFoundException('소스 없음');
++
++    this.running = true;
++    try {
++      const results = [];
++      for (const a of targets) results.push(await this.runOne(a, trigger, opts.userId));
++      return results;
++    } finally {
++      this.running = false;
++    }
++  }
++
++  private async runOne(a: ContestSourceAdapter, trigger: CrawlTrigger, userId?: string) {
++    const run = await this.crawlerRepository.startRun(a.key, trigger, userId);
++    const stat = { fetched: 0, created: 0, updated: 0, skipped: 0, error: null as string | null };
++    try {
++      if (!a.enabled()) throw new Error(a.disabledReason?.() ?? '비활성');
++      const { items, skipped } = await a.fetch();
++      stat.fetched = items.length;
++      stat.skipped = skipped;
++      const today = startOfToday();
++      const seen = new Set<string>();
++      for (const c of items) {
++        if (seen.has(c.externalId)) continue;
++        seen.add(c.externalId);
++        try {
++          const ex = await this.crawlerRepository.find(a.key, c.externalId);
++          if (ex) {
++            // 관리자가 내린 공고(CLOSED)는 다시 안 올림
++            if (ex.status === ContestStatus.CLOSED) stat.skipped++;
++            else {
++              await this.crawlerRepository.update(ex.id, c);
++              stat.updated++;
++            }
++          } else if (c.deadline < today) {
++            stat.skipped++;
++          } else {
++            await this.crawlerRepository.create(a.key, c);
++            stat.created++;
++          }
++        } catch (e) {
++          stat.skipped++;
++          this.logger.warn(`[${a.key}] ${c.externalId} 저장 실패: ${(e as Error).message}`);
++        }
++      }
++    } catch (e) {
++      stat.error = (e as Error).message.slice(0, 1000);
++      this.logger.error(`[${a.key}] 수집 실패: ${stat.error}`);
++    }
++    return this.crawlerRepository.finishRun(run.id, stat);
++  }
++}
+diff --git a/CrewFit_BE/src/crawler/crawler.types.ts b/CrewFit_BE/src/crawler/crawler.types.ts
+new file mode 100644
+index 0000000..0207444
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/crawler.types.ts
+@@ -0,0 +1,36 @@
++import { ContestCategory, ContestScope, ContestSource } from '@prisma/client';
++
++/** 외부에서 긁어온 공고 1건 (Contest 로 upsert) */
++export interface CrawledContest {
++  externalId: string;
++  title: string;
++  organizer: string;
++  description?: string;
++  category: ContestCategory;
++  tags: string[];
++  scope: ContestScope;
++  schoolId?: number | null;
++  region?: string | null;
++  applyStartAt?: Date | null;
++  deadline: Date;
++  linkUrl: string;
++  submitTo: string;
++}
++
++export interface SourceResult {
++  items: CrawledContest[];
++  /** 파싱 실패·대상 아님 등으로 버린 건수 */
++  skipped: number;
++}
++
++export interface ContestSourceAdapter {
++  readonly key: Exclude<ContestSource, 'MANUAL'>;
++  readonly name: string;
++  /** env 설정 안 되면 false → 수집 안 함 */
++  enabled(): boolean;
++  /** 비활성 사유 (관리자 화면 표시) */
++  disabledReason?(): string | null;
++  fetch(): Promise<SourceResult>;
++}
++
++export const CONTEST_SOURCE_ADAPTERS = Symbol('CONTEST_SOURCE_ADAPTERS');
+diff --git a/CrewFit_BE/src/crawler/dto/req/run-crawl.dto.ts b/CrewFit_BE/src/crawler/dto/req/run-crawl.dto.ts
+new file mode 100644
+index 0000000..253f3fe
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/dto/req/run-crawl.dto.ts
+@@ -0,0 +1,20 @@
++import { ApiPropertyOptional } from '@nestjs/swagger';
++import { ContestSource } from '@prisma/client';
++import { IsIn, IsOptional } from 'class-validator';
++
++const CRAWL_SOURCES = Object.values(ContestSource).filter((s) => s !== ContestSource.MANUAL);
++
++export class RunCrawlDto {
++  /** 비우면 활성 소스 전체 */
++  @ApiPropertyOptional({ enum: CRAWL_SOURCES })
++  @IsOptional()
++  @IsIn(CRAWL_SOURCES)
++  source?: ContestSource;
++}
++
++export class CrawlRunsQuery {
++  @ApiPropertyOptional({ enum: CRAWL_SOURCES })
++  @IsOptional()
++  @IsIn(CRAWL_SOURCES)
++  source?: ContestSource;
++}
+diff --git a/CrewFit_BE/src/crawler/sources/gist.source.ts b/CrewFit_BE/src/crawler/sources/gist.source.ts
+new file mode 100644
+index 0000000..4488384
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/sources/gist.source.ts
+@@ -0,0 +1,106 @@
++import { Injectable, Logger } from '@nestjs/common';
++import { ConfigService } from '@nestjs/config';
++import { ContestScope, ContestSource } from '@prisma/client';
++import { load } from 'cheerio';
++import { csv, Env } from '../../config/env.validation';
++import { PrismaService } from '../../prisma/prisma.service';
++import { ContestSourceAdapter, CrawledContest, SourceResult } from '../crawler.types';
++import { absUrl, fetchText, sleep } from '../util/http.util';
++import { clean, clip, extractDeadline, guessCategory, hashId, keywordFilter } from '../util/parse.util';
++
++const ID_PARAM = /[?&](?:no|idx|seq|bbsIdx|articleNo|nttId|bbs_seq|num|uid)=(\d+)/i;
++
++/**
++ * GIST 공지 게시판 (교내 공고 → SCHOOL 범위)
++ * 게시판 구조 모름 → 일반 파싱: 목록 링크 중 키워드 맞는 글 → 상세 본문에서 마감일 추정
++ * GIST_NOTICE_URLS 비우면 비활성. robots.txt 정책 확인 후 사용.
++ */
++@Injectable()
++export class GistSource implements ContestSourceAdapter {
++  readonly key = ContestSource.GIST;
++  readonly name = 'GIST 공지 게시판';
++  private readonly logger = new Logger(GistSource.name);
++
++  constructor(
++    private readonly config: ConfigService<Env, true>,
++    private readonly prisma: PrismaService,
++  ) {}
++
++  private get urls() {
++    return csv(this.config.get('GIST_NOTICE_URLS', { infer: true }));
++  }
++
++  enabled() {
++    return this.urls.length > 0;
++  }
++
++  disabledReason() {
++    return this.enabled() ? null : 'GIST_NOTICE_URLS 없음';
++  }
++
++  async fetch(): Promise<SourceResult> {
++    const ua = this.config.get('CRAWL_USER_AGENT', { infer: true });
++    const delay = this.config.get('CRAWL_DELAY_MS', { infer: true });
++    const pass = keywordFilter(csv(this.config.get('GIST_KEYWORDS', { infer: true })));
++    const school = await this.prisma.school.findFirst({
++      where: { OR: [{ shortName: 'GIST' }, { name: { contains: '광주과학기술원' } }] },
++      select: { id: true, region: true },
++    });
++    if (!school) throw new Error('GIST 학교 레코드 없음 (seed 확인)');
++
++    const links = new Map<string, { id: string; url: string; title: string }>();
++    for (const listUrl of this.urls) {
++      const $ = load(await fetchText(listUrl, { userAgent: ua }));
++      const scope = $('table tbody tr, .board_list li, .bbs_list li, ul.list li').length
++        ? $('table tbody tr, .board_list li, .bbs_list li, ul.list li')
++        : $('body');
++      scope.find('a[href]').each((_, el) => {
++        const a = $(el);
++        const href = a.attr('href') ?? '';
++        if (!href || href.startsWith('#') || href.startsWith('javascript')) return;
++        const title = clean(a.attr('title') || a.text());
++        if (title.length < 6 || !pass(title)) return;
++        const url = absUrl(href, listUrl);
++        if (!url || url === listUrl) return;
++        const id = ID_PARAM.exec(url)?.[1] ?? hashId(url);
++        links.set(id, { id, url, title });
++      });
++      await sleep(delay);
++    }
++
++    const items: CrawledContest[] = [];
++    let skipped = 0;
++    for (const l of links.values()) {
++      try {
++        const $ = load(await fetchText(l.url, { userAgent: ua }));
++        $('script, style, nav, header, footer').remove();
++        const body = clean($('.view_cont, .board_view, .bbs_view, .view-content, article, #content, .content').first().text()) || clean($('body').text());
++        const deadline = extractDeadline(`${l.title} ${body}`);
++        if (!deadline) {
++          skipped++;
++        } else {
++          items.push({
++            externalId: l.id,
++            title: clip(l.title, 200),
++            organizer: 'GIST',
++            description: clip(body, 3000),
++            category: guessCategory(l.title),
++            tags: ['GIST', '교내'],
++            scope: ContestScope.SCHOOL,
++            schoolId: school.id,
++            region: school.region,
++            deadline,
++            linkUrl: l.url,
++            submitTo: 'GIST (공지 원문 참고)',
++          });
++        }
++      } catch (e) {
++        skipped++;
++        this.logger.warn(`상세 실패 ${l.url}: ${(e as Error).message}`);
++      }
++      await sleep(delay);
++    }
++    this.logger.log(`GIST ${items.length}건 (skip ${skipped})`);
++    return { items, skipped };
++  }
++}
+diff --git a/CrewFit_BE/src/crawler/sources/kstartup.source.ts b/CrewFit_BE/src/crawler/sources/kstartup.source.ts
+new file mode 100644
+index 0000000..3d72654
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/sources/kstartup.source.ts
+@@ -0,0 +1,129 @@
++import { Injectable, Logger } from '@nestjs/common';
++import { ConfigService } from '@nestjs/config';
++import { ContestScope, ContestSource } from '@prisma/client';
++import { csv, Env } from '../../config/env.validation';
++import { ContestSourceAdapter, CrawledContest, SourceResult } from '../crawler.types';
++import { fetchJson, sleep } from '../util/http.util';
++import { clean, clip, guessCategory, keywordFilter, parseYmd } from '../util/parse.util';
++
++/** 공공데이터포털 15125364 창업진흥원_K-Startup 사업공고 */
++const ENDPOINT = 'https://apis.data.go.kr/B552735/kisedKstartupService01/getAnnouncementInformation01';
++const PER_PAGE = 100;
++const MAX_PAGES = 10;
++
++interface KsItem {
++  pbanc_sn?: number | string;
++  biz_pbanc_nm?: string;
++  intg_pbanc_biz_nm?: string;
++  pbanc_ntrp_nm?: string;
++  sprv_inst?: string;
++  pbanc_ctnt?: string;
++  aply_trgt_ctnt?: string;
++  aply_trgt?: string;
++  supt_biz_clsfc?: string;
++  supt_regin?: string;
++  pbanc_rcpt_bgng_dt?: string;
++  pbanc_rcpt_end_dt?: string;
++  detl_pg_url?: string;
++  biz_aply_url?: string;
++  biz_gdnc_url?: string;
++  rcrt_prgs_yn?: string;
++}
++
++interface KsResponse {
++  data?: KsItem[];
++  totalCount?: number;
++  matchCount?: number;
++}
++
++/** supt_regin → 크루핏 region. 전국/빈값 → 전국, 여기 없는 지역 → 버림 */
++const REGION_MAP: Record<string, string> = { 광주: '광주·전남', 전남: '광주·전남' };
++
++@Injectable()
++export class KStartupSource implements ContestSourceAdapter {
++  readonly key = ContestSource.KSTARTUP;
++  readonly name = 'K-Startup 사업공고 (창업진흥원 API)';
++  private readonly logger = new Logger(KStartupSource.name);
++
++  constructor(private readonly config: ConfigService<Env, true>) {}
++
++  private get apiKey() {
++    return this.config.get('KSTARTUP_API_KEY', { infer: true });
++  }
++
++  enabled() {
++    return !!this.apiKey;
++  }
++
++  disabledReason() {
++    return this.enabled() ? null : 'KSTARTUP_API_KEY 없음';
++  }
++
++  async fetch(): Promise<SourceResult> {
++    const ua = this.config.get('CRAWL_USER_AGENT', { infer: true });
++    const pass = keywordFilter(csv(this.config.get('KSTARTUP_KEYWORDS', { infer: true })));
++    const items: CrawledContest[] = [];
++    let skipped = 0;
++
++    for (let page = 1; page <= MAX_PAGES; page++) {
++      const qs = new URLSearchParams({
++        serviceKey: this.apiKey,
++        page: String(page),
++        perPage: String(PER_PAGE),
++        returnType: 'json',
++        'cond[rcrt_prgs_yn::EQ]': 'Y',
++      });
++      const res = await fetchJson<KsResponse>(`${ENDPOINT}?${qs}`, { userAgent: ua, timeoutMs: 20_000 });
++      const rows = res.data ?? [];
++      for (const r of rows) {
++        const c = this.map(r);
++        if (!c || !pass(c.title)) skipped++;
++        else items.push(c);
++      }
++      const total = res.matchCount ?? res.totalCount ?? 0;
++      if (rows.length < PER_PAGE || page * PER_PAGE >= total) break;
++      await sleep(300);
++    }
++    this.logger.log(`K-Startup ${items.length}건 (skip ${skipped})`);
++    return { items, skipped };
++  }
++
++  private map(r: KsItem): CrawledContest | null {
++    const id = r.pbanc_sn;
++    const title = clean(r.biz_pbanc_nm || r.intg_pbanc_biz_nm);
++    const deadline = parseYmd(r.pbanc_rcpt_end_dt);
++    if (!id || !title || !deadline) return null;
++    if (r.rcrt_prgs_yn && r.rcrt_prgs_yn !== 'Y') return null;
++
++    const regin = clean(r.supt_regin);
++    let scope: ContestScope = ContestScope.NATIONAL;
++    let region: string | null = null;
++    if (regin && !regin.includes('전국')) {
++      const hit = Object.keys(REGION_MAP).find((k) => regin.includes(k));
++      if (!hit) return null;
++      scope = ContestScope.REGION;
++      region = REGION_MAP[hit];
++    }
++
++    const organizer = clean(r.pbanc_ntrp_nm || r.sprv_inst) || '창업진흥원';
++    const target = clean(r.aply_trgt_ctnt || r.aply_trgt);
++    const body = clean(r.pbanc_ctnt);
++    const description = clip([body, target && `신청 대상: ${target}`].filter(Boolean).join('\n\n'), 3000);
++    const link = r.detl_pg_url || r.biz_aply_url || r.biz_gdnc_url || 'https://www.k-startup.go.kr';
++
++    return {
++      externalId: String(id),
++      title: clip(title, 200),
++      organizer: clip(organizer, 100),
++      description,
++      category: guessCategory(title, r.supt_biz_clsfc),
++      tags: ['K-Startup', ...(r.supt_biz_clsfc ? [clean(r.supt_biz_clsfc)] : []), ...(region ? [region] : [])],
++      scope,
++      region,
++      applyStartAt: parseYmd(r.pbanc_rcpt_bgng_dt, false),
++      deadline,
++      linkUrl: link,
++      submitTo: 'K-Startup 온라인 접수 (원문 링크)',
++    };
++  }
++}
+diff --git a/CrewFit_BE/src/crawler/sources/wevity.source.ts b/CrewFit_BE/src/crawler/sources/wevity.source.ts
+new file mode 100644
+index 0000000..dfd8896
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/sources/wevity.source.ts
+@@ -0,0 +1,142 @@
++import { Injectable, Logger } from '@nestjs/common';
++import { ConfigService } from '@nestjs/config';
++import { ContestScope, ContestSource } from '@prisma/client';
++import { load } from 'cheerio';
++import { Env } from '../../config/env.validation';
++import { ContestSourceAdapter, CrawledContest, SourceResult } from '../crawler.types';
++import { absUrl, fetchText, sleep } from '../util/http.util';
++import { clean, clip, deadlineFromDday, guessCategory, parseYmd } from '../util/parse.util';
++
++const BASE = 'https://www.wevity.com/';
++/** 공모전 전체 목록 (gub=1). gp=페이지 */
++const LIST_URL = (page: number) => `${BASE}?c=find&s=1&gub=1&gp=${page}`;
++
++interface Row {
++  ix: string;
++  url: string;
++  title: string;
++  field: string;
++  organizer: string;
++  dday: string;
++}
++
++/** 위비티 공모전 목록 크롤링 (robots.txt Allow:/) */
++@Injectable()
++export class WevitySource implements ContestSourceAdapter {
++  readonly key = ContestSource.WEVITY;
++  readonly name = '위비티 공모전';
++  private readonly logger = new Logger(WevitySource.name);
++
++  constructor(private readonly config: ConfigService<Env, true>) {}
++
++  enabled() {
++    return this.config.get('WEVITY_PAGES', { infer: true }) > 0;
++  }
++
++  disabledReason() {
++    return this.enabled() ? null : 'WEVITY_PAGES=0';
++  }
++
++  async fetch(): Promise<SourceResult> {
++    const ua = this.config.get('CRAWL_USER_AGENT', { infer: true });
++    const pages = this.config.get('WEVITY_PAGES', { infer: true });
++    const delay = this.config.get('CRAWL_DELAY_MS', { infer: true });
++    const rows = new Map<string, Row>();
++
++    for (let p = 1; p <= pages; p++) {
++      const html = await fetchText(LIST_URL(p), { userAgent: ua });
++      const found = this.parseList(html);
++      if (!found.length) break;
++      found.forEach((r) => rows.set(r.ix, r));
++      await sleep(delay);
++    }
++
++    const items: CrawledContest[] = [];
++    let skipped = 0;
++    for (const r of rows.values()) {
++      if (/마감(?!임박)/.test(r.dday)) {
++        skipped++;
++        continue;
++      }
++      let detail: { deadline: Date | null; start: Date | null; homepage: string | null; desc: string } = {
++        deadline: null,
++        start: null,
++        homepage: null,
++        desc: '',
++      };
++      try {
++        detail = this.parseDetail(await fetchText(r.url, { userAgent: ua }));
++      } catch (e) {
++        this.logger.warn(`상세 실패 ix=${r.ix}: ${(e as Error).message}`);
++      }
++      await sleep(delay);
++
++      const deadline = detail.deadline ?? deadlineFromDday(r.dday);
++      if (!deadline) {
++        skipped++;
++        continue;
++      }
++      const tags = r.field
++        .split(/[,/]/)
++        .map(clean)
++        .filter(Boolean)
++        .slice(0, 6);
++      items.push({
++        externalId: r.ix,
++        title: clip(r.title, 200),
++        organizer: clip(r.organizer || '위비티 공모전', 100),
++        description: detail.desc,
++        category: guessCategory(r.title, r.field),
++        tags: ['공모전', ...tags],
++        scope: ContestScope.NATIONAL,
++        applyStartAt: detail.start,
++        deadline,
++        linkUrl: r.url,
++        submitTo: detail.homepage ? `주최 측 접수 (${detail.homepage})` : '주최 측 접수 (원문 링크)',
++      });
++    }
++    this.logger.log(`위비티 ${items.length}건 (skip ${skipped})`);
++    return { items, skipped };
++  }
++
++  private parseList(html: string): Row[] {
++    const $ = load(html);
++    const out: Row[] = [];
++    // 기본 구조: ul.list > li ( .tit a / .sub-tit / .organ / .day )
++    let lis = $('ul.list > li').not('.top');
++    if (!lis.length) lis = $('a[href*="gbn=view"][href*="ix="]').closest('li');
++    lis.each((_, el) => {
++      const li = $(el);
++      const a = li.find('.tit a[href*="ix="]').first().length ? li.find('.tit a[href*="ix="]').first() : li.find('a[href*="ix="]').first();
++      const href = a.attr('href');
++      const ix = href && /[?&]ix=(\d+)/.exec(href)?.[1];
++      if (!href || !ix) return;
++      const url = absUrl(href, BASE);
++      if (!url) return;
++      const aClone = a.clone();
++      aClone.find('span, img, em, i').remove();
++      const title = clean(aClone.text()) || clean(a.text());
++      const field = clean(li.find('.sub-tit').text()).replace(/^분야\s*:?\s*/, '');
++      const organizer = clean(li.find('.organ').text());
++      const dday = clean(li.find('.day').text()) || clean(li.text());
++      if (title) out.push({ ix, url, title, field, organizer, dday });
++    });
++    return out;
++  }
++
++  /** 상세: '접수기간 2026-11-01 ~ 2026-12-05', '홈페이지 http://..' */
++  private parseDetail(html: string) {
++    const $ = load(html);
++    const text = clean($('body').text());
++    const period = /접수기간\s*:?\s*(20\d{2}[.\-/]\d{1,2}[.\-/]\d{1,2})\s*[~∼〜-]\s*(20\d{2}[.\-/]\d{1,2}[.\-/]\d{1,2})/.exec(text);
++    const homepage = /홈페이지\s*:?\s*(https?:\/\/[^\s"'<>]+)/.exec(text)?.[1] ?? null;
++    const descEl = $('#viewContents, .comm-desc, .article').first();
++    const desc = clip(clean(descEl.text()), 3000);
++    return {
++      start: period ? parseYmd(period[1], false) : null,
++      deadline: period ? parseYmd(period[2]) : null,
++      homepage,
++      desc,
++    };
++  }
++}
+diff --git a/CrewFit_BE/src/crawler/util/http.util.ts b/CrewFit_BE/src/crawler/util/http.util.ts
+new file mode 100644
+index 0000000..430c506
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/util/http.util.ts
+@@ -0,0 +1,41 @@
++const DEFAULT_UA = 'Mozilla/5.0 (compatible; CrewFitBot/0.1; +https://crewfit.kr)';
++
++export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
++
++/** charset(content-type / meta) 맞춰 디코딩 (euc-kr 게시판 대응) */
++export async function fetchText(url: string, opts: { userAgent?: string; timeoutMs?: number } = {}): Promise<string> {
++  const res = await fetch(url, {
++    headers: { 'User-Agent': opts.userAgent || DEFAULT_UA, Accept: 'text/html,application/json;q=0.9,*/*;q=0.8' },
++    signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
++    redirect: 'follow',
++  });
++  if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${url}`);
++  const buf = new Uint8Array(await res.arrayBuffer());
++  let charset = /charset=([\w-]+)/i.exec(res.headers.get('content-type') ?? '')?.[1];
++  if (!charset) {
++    const head = new TextDecoder('latin1').decode(buf.slice(0, 2048));
++    charset = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head)?.[1];
++  }
++  try {
++    return new TextDecoder((charset ?? 'utf-8').toLowerCase()).decode(buf);
++  } catch {
++    return new TextDecoder('utf-8').decode(buf);
++  }
++}
++
++export async function fetchJson<T>(url: string, opts: { userAgent?: string; timeoutMs?: number } = {}): Promise<T> {
++  const text = await fetchText(url, opts);
++  try {
++    return JSON.parse(text) as T;
++  } catch {
++    throw new Error(`JSON 아님: ${text.slice(0, 200)}`);
++  }
++}
++
++export const absUrl = (href: string, base: string) => {
++  try {
++    return new URL(href, base).toString();
++  } catch {
++    return null;
++  }
++};
+diff --git a/CrewFit_BE/src/crawler/util/parse.util.ts b/CrewFit_BE/src/crawler/util/parse.util.ts
+new file mode 100644
+index 0000000..df270f9
+--- /dev/null
++++ b/CrewFit_BE/src/crawler/util/parse.util.ts
+@@ -0,0 +1,89 @@
++import { ContestCategory } from '@prisma/client';
++import { createHash } from 'crypto';
++import { startOfToday } from '../../common/utils/date.util';
++
++const DAY = 86_400_000;
++
++const pad = (n: number) => String(n).padStart(2, '0');
++
++/** KST y-m-d hh:mm:ss, 존재하지 않는 날짜(2/30 등)는 null */
++function kst(y: number, m: number, d: number, time: string): Date | null {
++  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
++  const dt = new Date(`${y}-${pad(m)}-${pad(d)}T${time}+09:00`);
++  if (Number.isNaN(dt.getTime())) return null;
++  const back = new Date(dt.getTime() + 9 * 3_600_000);
++  return back.getUTCDate() === d ? dt : null;
++}
++
++export const kstEndOfDay = (y: number, m: number, d: number) => kst(y, m, d, '23:59:59');
++export const kstStartOfDay = (y: number, m: number, d: number) => kst(y, m, d, '00:00:00');
++
++/** '20261205' · '2026-12-05' · '2026.12.05' · '2026. 12. 5.' */
++export function parseYmd(v: unknown, end = true): Date | null {
++  if (v === null || v === undefined) return null;
++  const s = String(v).trim();
++  const m = /^(\d{4})[.\-/\s]*(\d{1,2})[.\-/\s]*(\d{1,2})/.exec(s.replace(/\s+/g, ' '));
++  if (!m) return null;
++  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
++  return end ? kstEndOfDay(y, mo, d) : kstStartOfDay(y, mo, d);
++}
++
++/** 'D-12' → 오늘+12일 23:59 KST, 'D-day'/'오늘마감' → 오늘 */
++export function deadlineFromDday(text: string): Date | null {
++  const t = text.replace(/\s+/g, '');
++  let n: number | null = null;
++  if (/D-?day|오늘마감|D-0(?!\d)/i.test(t)) n = 0;
++  const m = /D-(\d{1,3})/i.exec(t);
++  if (m) n = Number(m[1]);
++  if (n === null) return null;
++  const d = new Date(startOfToday().getTime() + n * DAY);
++  d.setHours(23, 59, 59, 0);
++  return d;
++}
++
++const YMD = /(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*일?/g;
++
++/**
++ * 본문에서 마감일 추정.
++ * 1) '마감·접수·신청·기간·까지' 근처 날짜 중 가장 늦은 미래 날짜
++ * 2) 없으면 본문 전체 미래 날짜 중 가장 늦은 것 (400일 이내)
++ */
++export function extractDeadline(text: string, now = new Date()): Date | null {
++  const t = text.replace(/\s+/g, ' ');
++  const limit = now.getTime() + 400 * DAY;
++  const near: Date[] = [];
++  const all: Date[] = [];
++  for (const m of t.matchAll(YMD)) {
++    const d = parseYmd(`${m[1]}-${m[2]}-${m[3]}`);
++    if (!d || d.getTime() < startOfToday().getTime() || d.getTime() > limit) continue;
++    all.push(d);
++    const ctx = t.slice(Math.max(0, (m.index ?? 0) - 40), (m.index ?? 0) + m[0].length + 15);
++    if (/마감|접수|신청|모집|기간|까지|~|∼|〜/.test(ctx)) near.push(d);
++  }
++  const pick = near.length ? near : all;
++  if (!pick.length) return null;
++  return pick.reduce((a, b) => (b > a ? b : a));
++}
++
++const CATEGORY_RULES: [RegExp, ContestCategory][] = [
++  [/해커톤|hackathon|코딩대회|프로그래밍/i, ContestCategory.HACKATHON],
++  [/데모데이|demo ?day|IR|피칭|오디션/i, ContestCategory.DEMO],
++  [/창업|스타트업|사업화|예비창업|startup|액셀러|보육/i, ContestCategory.STARTUP],
++  [/논문|학술|연구|research/i, ContestCategory.RESEARCH],
++  [/아이디어|기획|제안|idea/i, ContestCategory.IDEA],
++];
++
++export function guessCategory(...texts: (string | null | undefined)[]): ContestCategory {
++  const s = texts.filter(Boolean).join(' ');
++  for (const [re, c] of CATEGORY_RULES) if (re.test(s)) return c;
++  return ContestCategory.ETC;
++}
++
++export const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
++
++export const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
++
++export const hashId = (s: string) => createHash('sha1').update(s).digest('hex').slice(0, 20);
++
++export const keywordFilter = (keywords: string[]) => (title: string) =>
++  !keywords.length || keywords.some((k) => title.toLowerCase().includes(k.toLowerCase()));
+diff --git a/CrewFit_FE/src/App.tsx b/CrewFit_FE/src/App.tsx
+index e072a81..c074088 100644
+--- a/CrewFit_FE/src/App.tsx
++++ b/CrewFit_FE/src/App.tsx
+@@ -4,6 +4,7 @@ import { tokenStore } from './api/client';
+ import { isAdminRole, useMe } from './auth/auth';
+ import { Loading } from './components/ui';
+ import { AdminContestFormPage, AdminContestsPage } from './features/admin/AdminContestsPage';
++import { AdminCrawlerPage } from './features/admin/AdminCrawlerPage';
+ import { AdminDashboardPage } from './features/admin/AdminDashboardPage';
+ import { AdminDocumentsPage } from './features/admin/AdminDocumentsPage';
+ import { AdminForwardPage } from './features/admin/AdminForwardPage';
+@@ -67,6 +68,7 @@ export function App() {
+         <Route path="teams" element={<AdminTeamsPage />} />
+         <Route path="documents" element={<AdminDocumentsPage />} />
+         <Route path="forward" element={<AdminForwardPage />} />
++        <Route path="crawler" element={<AdminCrawlerPage />} />
+         <Route path="settings" element={<AdminSettingsPage />} />
+       </Route>
+ 
+diff --git a/CrewFit_FE/src/api/types.ts b/CrewFit_FE/src/api/types.ts
+index 0dd8bde..5f66d6e 100644
+--- a/CrewFit_FE/src/api/types.ts
++++ b/CrewFit_FE/src/api/types.ts
+@@ -89,8 +89,12 @@ export interface ContestCard {
+   interestCount: number;
+   recruitingTeamCount: number;
+   isInterested: boolean;
++  source: ContestSource;
+ }
+ 
++export type ContestSource = 'MANUAL' | 'KSTARTUP' | 'WEVITY' | 'GIST';
++export const SOURCE_LABEL: Record<ContestSource, string> = { MANUAL: '', KSTARTUP: 'K-Startup', WEVITY: '위비티', GIST: 'GIST 공지' };
++
+ export interface ContestDetail extends ContestCard {
+   description: string;
+   submitTo: string;
+diff --git a/CrewFit_FE/src/features/admin/AdminContestsPage.tsx b/CrewFit_FE/src/features/admin/AdminContestsPage.tsx
+index c1f505f..be0f35d 100644
+--- a/CrewFit_FE/src/features/admin/AdminContestsPage.tsx
++++ b/CrewFit_FE/src/features/admin/AdminContestsPage.tsx
+@@ -36,7 +36,10 @@ export function AdminContestsPage() {
+               {data.map((c) => (
+                 <tr key={c.id} className="border-t border-line">
+                   <td className="px-4 py-3">
+-                    <p className="font-semibold">{c.title}</p>
++                    <p className="font-semibold">
++                      {c.source !== 'MANUAL' && <Chip className="mr-1.5">자동 수집</Chip>}
++                      {c.title}
++                    </p>
+                     <p className="text-xs text-sub">
+                       {c.organizer} · {c.categoryLabel} · 제출처 {c.submitTo}
+                     </p>
+diff --git a/CrewFit_FE/src/features/admin/AdminCrawlerPage.tsx b/CrewFit_FE/src/features/admin/AdminCrawlerPage.tsx
+new file mode 100644
+index 0000000..79fe550
+--- /dev/null
++++ b/CrewFit_FE/src/features/admin/AdminCrawlerPage.tsx
+@@ -0,0 +1,137 @@
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
++import { api } from '../../api/client';
++import { SOURCE_LABEL, type ContestSource } from '../../api/types';
++import { Button, Chip, Empty, errMsg, Loading, useToast } from '../../components/ui';
++import { dateTime } from '../../lib/format';
++import type { AdminMe } from './types';
++
++interface CrawlRun {
++  id: number;
++  source: ContestSource;
++  trigger: 'SCHEDULE' | 'MANUAL';
++  startedAt: string;
++  finishedAt: string | null;
++  fetched: number;
++  created: number;
++  updated: number;
++  skipped: number;
++  error: string | null;
++}
++
++interface SourceRow {
++  key: ContestSource;
++  name: string;
++  enabled: boolean;
++  disabledReason: string | null;
++  activeCount: number;
++  lastRun: CrawlRun | null;
++}
++
++const runLabel = (r: CrawlRun) => (r.error ? `실패 · ${r.error}` : `신규 ${r.created} · 갱신 ${r.updated} · 제외 ${r.skipped}`);
++
++/** 외부 공고 수집 (K-Startup · 위비티 · GIST 공지). 매일 06:00 자동 */
++export function AdminCrawlerPage() {
++  const qc = useQueryClient();
++  const toast = useToast();
++  const me = useQuery({ queryKey: ['admin', 'me'], queryFn: () => api.get<AdminMe>('/admin/me') });
++  const src = useQuery({
++    queryKey: ['admin', 'crawler', 'sources'],
++    queryFn: () => api.get<{ running: boolean; sources: SourceRow[] }>('/admin/crawler/sources'),
++    refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
++  });
++  const runs = useQuery({ queryKey: ['admin', 'crawler', 'runs'], queryFn: () => api.get<CrawlRun[]>('/admin/crawler/runs') });
++
++  const run = useMutation({
++    mutationFn: (source?: ContestSource) => api.post<CrawlRun[]>('/admin/crawler/run', source ? { source } : {}),
++    onMutate: () => toast('수집 시작', '사이트마다 수십 초 걸려요'),
++    onSuccess: (r) => {
++      toast('수집 완료', r.map((x) => `${SOURCE_LABEL[x.source]} ${runLabel(x)}`).join(' / '));
++    },
++    onError: (e) => toast(errMsg(e)),
++    onSettled: () => qc.invalidateQueries({ queryKey: ['admin'] }),
++  });
++
++  if (!src.data || !me.data) return <Loading />;
++  const isSuper = me.data.role === 'SUPER_ADMIN';
++  const busy = run.isPending || src.data.running;
++
++  return (
++    <div className="mx-auto flex max-w-5xl flex-col gap-6">
++      <div className="flex items-end justify-between">
++        <div>
++          <p className="text-2xl font-bold">외부 공고 수집</p>
++          <p className="text-sm text-sub">매일 오전 6시 자동 수집 · 수집 공고는 바로 게시 · 삭제하면 마감 처리(다시 안 올라옴)</p>
++        </div>
++        {isSuper && (
++          <Button disabled={busy} onClick={() => run.mutate(undefined)}>
++            {busy ? '수집 중…' : '전체 지금 수집'}
++          </Button>
++        )}
++      </div>
++
++      <section className="overflow-hidden rounded-2xl border border-line bg-surface">
++        <table className="w-full text-sm">
++          <thead className="bg-canvas text-left text-xs text-sub">
++            <tr>
++              <th className="px-4 py-3">소스</th>
++              <th className="px-3">상태</th>
++              <th className="px-3">게시 중</th>
++              <th className="px-3">최근 수집</th>
++              <th className="px-3" />
++            </tr>
++          </thead>
++          <tbody>
++            {src.data.sources.map((s) => (
++              <tr key={s.key} className="border-t border-line">
++                <td className="px-4 py-3 font-semibold">{s.name}</td>
++                <td className="px-3">{s.enabled ? <Chip tone="green">사용</Chip> : <Chip>{s.disabledReason ?? '꺼짐'}</Chip>}</td>
++                <td className="px-3">{s.activeCount}</td>
++                <td className="px-3 text-xs">
++                  {s.lastRun ? (
++                    <>
++                      <p>{dateTime(s.lastRun.startedAt)}</p>
++                      <p className={s.lastRun.error ? 'text-danger' : 'text-sub'}>{runLabel(s.lastRun)}</p>
++                    </>
++                  ) : (
++                    <span className="text-sub">없음</span>
++                  )}
++                </td>
++                <td className="px-3 text-right">
++                  {isSuper && (
++                    <Button size="sm" variant="outline" disabled={busy || !s.enabled} onClick={() => run.mutate(s.key)}>
++                      수집
++                    </Button>
++                  )}
++                </td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      </section>
++
++      <section className="flex flex-col gap-3">
++        <p className="font-bold">수집 기록</p>
++        {!runs.data?.length ? (
++          <Empty>기록 없음</Empty>
++        ) : (
++          <div className="overflow-hidden rounded-2xl border border-line bg-surface">
++            <table className="w-full text-sm">
++              <tbody>
++                {runs.data.map((r) => (
++                  <tr key={r.id} className="border-t border-line first:border-t-0">
++                    <td className="px-4 py-2.5 whitespace-nowrap">{dateTime(r.startedAt)}</td>
++                    <td className="px-3">{SOURCE_LABEL[r.source]}</td>
++                    <td className="px-3">
++                      <Chip tone={r.trigger === 'SCHEDULE' ? 'gray' : 'dark'}>{r.trigger === 'SCHEDULE' ? '자동' : '수동'}</Chip>
++                    </td>
++                    <td className={`px-3 text-xs ${r.error ? 'text-danger' : 'text-sub'}`}>{r.finishedAt ? runLabel(r) : '진행 중'}</td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++        )}
++      </section>
++    </div>
++  );
++}
+diff --git a/CrewFit_FE/src/features/admin/AdminLayout.tsx b/CrewFit_FE/src/features/admin/AdminLayout.tsx
+index 2aa5041..b7cb14e 100644
+--- a/CrewFit_FE/src/features/admin/AdminLayout.tsx
++++ b/CrewFit_FE/src/features/admin/AdminLayout.tsx
+@@ -1,5 +1,5 @@
+ import { useQuery } from '@tanstack/react-query';
+-import { Bell, FileText, LayoutGrid, LogOut, Megaphone, Send, Settings, Trophy, Users } from 'lucide-react';
++import { Bell, CloudDownload, FileText, LayoutGrid, LogOut, Megaphone, Send, Settings, Trophy, Users } from 'lucide-react';
+ import { NavLink, Outlet, useNavigate } from 'react-router';
+ import { api } from '../../api/client';
+ import { useLogout } from '../../auth/auth';
+@@ -14,6 +14,7 @@ const MENU = [
+   { to: '/admin/documents', label: '서류 보관함', Icon: FileText, end: false },
+   { to: '/admin/forward', label: '운영사 전달', Icon: Send, end: false },
+   { to: '/admin/contests/new', label: '공고 등록', Icon: Megaphone, end: true },
++  { to: '/admin/crawler', label: '외부 공고 수집', Icon: CloudDownload, end: true },
+ ];
+ 
+ /** 크루핏 for School 레이아웃 (PC) */
+diff --git a/CrewFit_FE/src/features/admin/types.ts b/CrewFit_FE/src/features/admin/types.ts
+index 67b94f0..cf32995 100644
+--- a/CrewFit_FE/src/features/admin/types.ts
++++ b/CrewFit_FE/src/features/admin/types.ts
+@@ -58,6 +58,7 @@ export interface AdminContest {
+   operatorEmail: string | null;
+   linkUrl: string | null;
+   status: 'DRAFT' | 'PUBLISHED' | 'CLOSED';
++  source: 'MANUAL' | 'KSTARTUP' | 'WEVITY' | 'GIST';
+   school: { shortName: string } | null;
+   requiredDocuments: { id: number; type: string; title: string; description: string | null }[];
+   _count: { interests: number; teams: number };
+diff --git a/CrewFit_FE/src/features/home/cards.tsx b/CrewFit_FE/src/features/home/cards.tsx
+index 7543891..5437cf1 100644
+--- a/CrewFit_FE/src/features/home/cards.tsx
++++ b/CrewFit_FE/src/features/home/cards.tsx
+@@ -1,6 +1,6 @@
+ import { Heart } from 'lucide-react';
+ import { useNavigate } from 'react-router';
+-import type { ContestCard as Contest, TeamCard as Team } from '../../api/types';
++import { SOURCE_LABEL, type ContestCard as Contest, type TeamCard as Team } from '../../api/types';
+ import { Avatar, Chip } from '../../components/ui';
+ import { categoryColor, cx, dDayLabel } from '../../lib/format';
+ 
+@@ -18,6 +18,7 @@ export function ContestCard({ c }: { c: Contest }) {
+         <span className="truncate text-[15px] font-semibold">{c.title}</span>
+         <span className="flex items-center gap-2">
+           <Chip tone="red">{dDayLabel(c.dDay)}</Chip>
++          {c.source && c.source !== 'MANUAL' && <Chip>{SOURCE_LABEL[c.source]}</Chip>}
+           <span className="text-xs font-semibold text-primary">모집 중인 팀 {c.recruitingTeamCount}</span>
+         </span>
+       </span>
+diff --git a/README.md b/README.md
+index 9505a1e..37ff70c 100644
+--- a/README.md
++++ b/README.md
+@@ -5,7 +5,7 @@
+ ```
+ CrewFit_BE/   백엔드 — NestJS + Prisma + PostgreSQL (학생 웹·앱·학교 관리자 사이트 공용 API)
+ CrewFit_FE/   프론트 — React 한 앱: 학생(모바일) + 학교 관리자(/admin)
+-CrewFit_APP/  안드로이드/iOS 앱 — Flutter (BLoC·freezed·get_it/injectable·auto_route·retrofit)
++CrewFit_APP/  안드로이드/iOS 앱 — Flutter (BLoC·freezed·get_it/injectable·auto_route·retrofit) ⏸ 보류 (코드 유지, 개발 중단)
+ design/       피그마 원본(.fig) · 디자인 토큰 · 화면↔API 표
+ docs/         기획 문서
+ docker-compose.yml   로컬 DB + API + FE(dev)
+@@ -40,6 +40,13 @@ docker compose up fe          # http://localhost:5173
+ 
+ 자세한 내용: `CrewFit_BE/README.md`, `CrewFit_FE/README.md`, `CrewFit_APP/README.md`
+ 
++## 외부 공고 자동 수집
++
++- 소스: K-Startup 사업공고 API · 위비티 · GIST 공지 (`CrewFit_BE/src/crawler`)
++- 매일 06:00 KST 자동 + 관리자 `/admin/crawler` 수동. 수집 공고 바로 게시.
++- env: `KSTARTUP_API_KEY`, `WEVITY_PAGES`, `GIST_NOTICE_URLS` (비우면 해당 소스 꺼짐)
++- 새 소스: `ContestSourceAdapter` 구현 → `crawler.module.ts` 등록 → `ContestSource` enum 추가
++
+ ## 배포 · QR
+ 
+ - QR = URL. 고정 도메인이면 재배포해도 QR 그대로.
